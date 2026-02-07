@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react" // DÜZELTİLDİ: 'React' silindi
+import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { Plus, Search, ArrowUp, ArrowDown, Filter } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -40,50 +40,116 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
+import { getTransactions, addTransaction, getAccounts } from "@/services/db" // DB fonksiyonları
 
-// --- YARDIMCI VE DATA KISIMLARI (Aynı kalıyor) ---
+// --- YARDIMCI FONKSİYONLAR ---
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 }
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
-type TransactionType = "tahsilat" | "odeme"
-interface Transaction { id: number; accountId: string; account: string; type: TransactionType; amount: number; description: string; date: string; }
 
-const transactions: Transaction[] = [
-  { id: 1, accountId: "1", account: "Ahmet Yılmaz", type: "tahsilat", amount: 5000, description: "Kira ödemesi", date: "2026-01-30" },
-  { id: 2, accountId: "2", account: "ABC İnşaat Ltd.", type: "odeme", amount: 12500, description: "Malzeme alımı", date: "2026-01-29" },
-  { id: 3, accountId: "4", account: "Yıldız Apartmanı", type: "tahsilat", amount: 8750, description: "Aidat tahsilatı", date: "2026-01-28" },
-  { id: 4, accountId: "3", account: "Fatma Kaya", type: "tahsilat", amount: 3200, description: "Hizmet bedeli", date: "2026-01-27" },
-  { id: 5, accountId: "8", account: "Merkez İş Hanı", type: "odeme", amount: 6800, description: "Bakım gideri", date: "2026-01-26" },
-  { id: 6, accountId: "6", account: "Güneş Sitesi", type: "tahsilat", amount: 15000, description: "Yönetim ücreti", date: "2026-01-25" },
-  { id: 7, accountId: "5", account: "Mehmet Demir", type: "odeme", amount: 2400, description: "Avans ödemesi", date: "2026-01-24" },
-]
+type TransactionType = "tahsilat" | "odeme"
+
+// Veritabanından gelecek veri tipi
+interface Transaction { 
+    id: number; 
+    accountId: number; 
+    accountName: string; // Join ile gelecek
+    type: TransactionType; 
+    amount: number; 
+    description: string; 
+    date: string; 
+}
 
 export default function TransactionsPage() {
+  const { toast } = useToast()
+  
+  // STATE'LER
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [accounts, setAccounts] = useState<any[]>([]) // Cari seçimi için liste
+  
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [txType, setTxType] = useState<TransactionType>("tahsilat")
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<"all" | "tahsilat" | "odeme">("all")
 
+  // FORM STATE
+  const [txType, setTxType] = useState<TransactionType>("tahsilat")
+  const [formData, setFormData] = useState({
+      accountId: "",
+      amount: "",
+      description: "",
+      method: "cash"
+  })
+
+  // --- VERİLERİ YÜKLE ---
+  const loadData = async () => {
+      try {
+          const txData = await getTransactions();
+          setTransactions(txData);
+          
+          const accData = await getAccounts();
+          setAccounts(accData);
+      } catch (error) {
+          console.error("Veriler yüklenemedi", error);
+      }
+  }
+
+  useEffect(() => {
+      loadData();
+  }, [])
+
+  // --- YENİ İŞLEM KAYDET ---
+  const handleSave = async () => {
+      if (!formData.accountId || !formData.amount) {
+          toast({ title: "Hata", description: "Lütfen cari ve tutar giriniz.", variant: "destructive" })
+          return;
+      }
+
+      try {
+          await addTransaction({
+              accountId: Number(formData.accountId),
+              type: txType,
+              amount: parseFloat(formData.amount),
+              description: formData.description || (txType === 'tahsilat' ? 'Tahsilat İşlemi' : 'Ödeme İşlemi'),
+              date: new Date().toISOString().split('T')[0] // Bugünün tarihi (YYYY-MM-DD)
+          });
+
+          await loadData(); // Listeyi yenile
+          setIsModalOpen(false);
+          setFormData({ accountId: "", amount: "", description: "", method: "cash" }); // Formu sıfırla
+          toast({ title: "Başarılı", description: "İşlem kaydedildi." })
+
+      } catch (error) {
+          console.error(error);
+          toast({ title: "Hata", description: "Kaydedilemedi.", variant: "destructive" })
+      }
+  }
+
+  // --- FİLTRELEME ---
   const filteredTransactions = useMemo(() => {
     let result = transactions;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      result = result.filter((tx) => tx.account.toLowerCase().includes(query) || tx.description.toLowerCase().includes(query))
+      // accountName null gelebilir kontrolü yapıyoruz
+      result = result.filter((tx) => 
+        (tx.accountName && tx.accountName.toLowerCase().includes(query)) || 
+        (tx.description && tx.description.toLowerCase().includes(query))
+      )
     }
     if (filterType !== "all") {
       result = result.filter((tx) => tx.type === filterType)
     }
     return result;
-  }, [searchQuery, filterType])
+  }, [transactions, searchQuery, filterType])
 
+  // --- TOPLAMLAR ---
   const totalTahsilat = filteredTransactions.filter((tx) => tx.type === "tahsilat").reduce((sum, tx) => sum + tx.amount, 0)
   const totalOdeme = filteredTransactions.filter((tx) => tx.type === "odeme").reduce((sum, tx) => sum + tx.amount, 0)
   const kasaBakiyesi = totalTahsilat - totalOdeme
 
-  // DİKKAT: 'max-w-6xl' SİLİNDİ, 'w-full' EKLENDİ
   return (
     <div className="w-full space-y-6">
       <div className="flex items-center justify-between">
@@ -105,6 +171,7 @@ export default function TransactionsPage() {
               <DialogDescription>Listeye manuel olarak yeni bir gelir veya gider ekleyin.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-5 py-4">
+              {/* TİP SEÇİM BUTONLARI */}
               <div className="grid grid-cols-2 gap-4">
                 <button type="button" onClick={() => setTxType('tahsilat')} className={`flex flex-col items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${txType === 'tahsilat' ? 'border-green-600 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'border-muted hover:border-green-200 text-muted-foreground'}`}>
                   <ArrowUp className={`h-6 w-6 ${txType === 'tahsilat' ? 'text-green-600' : ''}`} />
@@ -115,16 +182,63 @@ export default function TransactionsPage() {
                   <span className="font-semibold text-sm">Ödeme (Ver)</span>
                 </button>
               </div>
-              {/* Form Alanları (Kısaltıldı, öncekiyle aynı) */}
+
+              {/* FORM ALANLARI */}
               <div className="space-y-4">
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Cari Adı</Label><Input className="col-span-3" /></div>
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Tutar</Label><div className="col-span-3 relative"><Input className="pl-8" /><span className="absolute left-3 top-2.5 text-muted-foreground text-sm">₺</span></div></div>
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Açıklama</Label><Input className="col-span-3" /></div>
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Yöntem</Label><Select><SelectTrigger className="col-span-3"><SelectValue placeholder="Seçiniz" /></SelectTrigger><SelectContent><SelectItem value="cash">Nakit</SelectItem><SelectItem value="card">Kredi Kartı</SelectItem><SelectItem value="bank">Havale / EFT</SelectItem></SelectContent></Select></div>
+                  {/* CARİ SEÇİMİ */}
+                  <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-medium">Cari Adı</Label>
+                      <Select onValueChange={(val) => setFormData({...formData, accountId: val})}>
+                        <SelectTrigger className="col-span-3">
+                            <SelectValue placeholder="Cari Seçiniz" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {accounts.map(acc => (
+                                <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                  </div>
+
+                  <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-medium">Tutar</Label>
+                      <div className="col-span-3 relative">
+                          <Input 
+                            type="number" 
+                            className="pl-8" 
+                            value={formData.amount}
+                            onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                          />
+                          <span className="absolute left-3 top-2.5 text-muted-foreground text-sm">₺</span>
+                      </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-medium">Açıklama</Label>
+                      <Input 
+                        className="col-span-3" 
+                        value={formData.description}
+                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                      />
+                  </div>
+                  
+                  <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-medium">Yöntem</Label>
+                      <Select value={formData.method} onValueChange={(val) => setFormData({...formData, method: val})}>
+                          <SelectTrigger className="col-span-3"><SelectValue placeholder="Seçiniz" /></SelectTrigger>
+                          <SelectContent>
+                              <SelectItem value="cash">Nakit</SelectItem>
+                              <SelectItem value="card">Kredi Kartı</SelectItem>
+                              <SelectItem value="bank">Havale / EFT</SelectItem>
+                          </SelectContent>
+                      </Select>
+                  </div>
               </div>
             </div>
             <DialogFooter>
-               <Button type="submit" className={txType === 'tahsilat' ? 'bg-green-600 hover:bg-green-700' : 'bg-destructive hover:bg-destructive/90'}>{txType === 'tahsilat' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'}</Button>
+                <Button onClick={handleSave} className={txType === 'tahsilat' ? 'bg-green-600 hover:bg-green-700' : 'bg-destructive hover:bg-destructive/90'}>
+                    {txType === 'tahsilat' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'}
+                </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -150,7 +264,7 @@ export default function TransactionsPage() {
                 </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {/* Tablo içeriği aynı */}
+          
           <div className="overflow-hidden">
             <Table>
               <TableHeader><TableRow className="hover:bg-transparent border-border"><TableHead className="w-28">Tarih</TableHead><TableHead>Hesap Adı</TableHead><TableHead>İşlem Tipi</TableHead><TableHead className="text-right">Tutar</TableHead><TableHead>Açıklama</TableHead></TableRow></TableHeader>
@@ -158,7 +272,7 @@ export default function TransactionsPage() {
                 {filteredTransactions.length === 0 ? (<TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">İşlem bulunamadı.</TableCell></TableRow>) : (filteredTransactions.map((tx) => (
                     <TableRow key={tx.id} className="border-border group">
                       <TableCell className="text-muted-foreground font-medium">{formatDate(tx.date)}</TableCell>
-                      <TableCell><Link to={`/accounts?id=${tx.accountId}`} className="font-medium text-foreground hover:text-primary hover:underline">{tx.account}</Link></TableCell>
+                      <TableCell><Link to={`/accounts?id=${tx.accountId}`} className="font-medium text-foreground hover:text-primary hover:underline">{tx.accountName || "Silinmiş Cari"}</Link></TableCell>
                       <TableCell><Badge variant="outline" className={cn("gap-1 pr-3", tx.type === "tahsilat" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-destructive border-red-200 dark:bg-red-900/20")}>{tx.type === "tahsilat" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}{tx.type === "tahsilat" ? "Tahsilat" : "Ödeme"}</Badge></TableCell>
                       <TableCell className={cn("text-right font-bold text-base", tx.type === "tahsilat" ? "text-green-600" : "text-destructive")}>{tx.type === "tahsilat" ? "+" : "-"}{formatCurrency(tx.amount)}</TableCell>
                       <TableCell className="text-muted-foreground">{tx.description}</TableCell>
