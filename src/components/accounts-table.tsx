@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Eye, Plus, MoreHorizontal, User, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Mail, MapPin, CreditCard, FileText, Home, Filter } from "lucide-react"
+import { Eye, Plus, MoreHorizontal, User, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Mail, MapPin, CreditCard, FileText, Home, Filter, Wallet, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
-import { addTransaction, getTransactionsByAccount } from "@/services/db"
+import { addTransaction, getTransactionsByAccount, getAccounts } from "@/services/db"
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 const formatDate = (dateStr: string) => {
@@ -17,11 +17,10 @@ const formatDate = (dateStr: string) => {
     return d.toLocaleDateString("tr-TR") + " " + d.toLocaleTimeString("tr-TR", {hour: '2-digit', minute:'2-digit'});
 }
 
-// 1. onEdit PROPU EKLENDİ
 interface AccountsTableProps {
     data: Account[];
     onDelete: (id: string) => void;
-    onEdit: (account: Account) => void; // Yeni eklenen özellik
+    onEdit: (account: Account) => void; 
     onRefresh: () => void;
 }
 
@@ -30,26 +29,54 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
   const [filterText, setFilterText] = useState("")
   const [filterType, setFilterType] = useState<"all" | "individual" | "corporate">("all")
   
-  // Sheet ve Modal State'leri
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [accountHistory, setAccountHistory] = useState<any[]>([])
+  
   const [transactionAccount, setTransactionAccount] = useState<Account | null>(null)
   const [txType, setTxType] = useState<"tahsilat" | "odeme">("tahsilat")
   const [txAmount, setTxAmount] = useState("")
   const [txDesc, setTxDesc] = useState("")
   const [txDate, setTxDate] = useState("")
 
+  const [historyStartDate, setHistoryStartDate] = useState("")
+  const [historyEndDate, setHistoryEndDate] = useState("")
+
   const copyPhone = (phone: string) => {
     navigator.clipboard.writeText(phone)
     toast({ title: "Kopyalandı", description: "Telefon numarası panoya alındı." })
   }
 
+  const loadAccountHistory = async (acc: Account) => {
+      try {
+          const history = await getTransactionsByAccount(acc.id);
+          
+          let rBorc = acc.borc;
+          let rAlacak = acc.alacak;
+          let rBakiye = acc.bakiye;
+          
+          const enrichedHistory = history.map(tx => {
+              const snapshot = { borc: rBorc, alacak: rAlacak, bakiye: rBakiye };
+              
+              if (tx.type === 'tahsilat') {
+                  rAlacak -= tx.amount;
+                  rBakiye -= tx.amount;
+              } else {
+                  rBorc -= tx.amount;
+                  rBakiye += tx.amount;
+              }
+              
+              return { ...tx, snapshot };
+          });
+
+          setAccountHistory(enrichedHistory);
+      } catch (e) { console.error(e); }
+  }
+
   const handleViewDetails = async (account: Account) => {
       setSelectedAccount(account);
-      try {
-          const history = await getTransactionsByAccount(account.id);
-          setAccountHistory(history);
-      } catch (e) { console.error(e); }
+      setHistoryStartDate("");
+      setHistoryEndDate("");
+      await loadAccountHistory(account);
   }
 
   const openTransactionModal = (account: Account) => {
@@ -72,15 +99,129 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
             description: txDesc || (txType === 'tahsilat' ? 'Tahsilat' : 'Ödeme'),
             date: txDate
         });
+        
         onRefresh(); 
+        
         if (selectedAccount && selectedAccount.id === transactionAccount.id) {
-            const history = await getTransactionsByAccount(selectedAccount.id);
-            setAccountHistory(history);
+            const freshAccounts = await getAccounts();
+            const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
+            if (freshAcc) {
+                setSelectedAccount(freshAcc);
+                await loadAccountHistory(freshAcc);
+            }
         }
+        
         setTransactionAccount(null);
         toast({ title: "Başarılı", description: "İşlem kaydedildi." })
     } catch (e) { toast({ title: "Hata", description: "Kaydedilemedi.", variant: "destructive" }) }
   }
+
+  const displayedHistory = accountHistory.filter(tx => {
+    if (!historyStartDate && !historyEndDate) return true;
+    const txDateOnly = tx.date.split('T')[0];
+    if (historyStartDate && txDateOnly < historyStartDate) return false;
+    if (historyEndDate && txDateOnly > historyEndDate) return false;
+    return true;
+  });
+
+  // --- YAZDIRMA EKRANI GÜNCELLENDİ (Kronolojik Sıra) ---
+  const handlePrintHistory = () => {
+    if (!selectedAccount) return;
+
+    const printWindow = document.createElement('iframe');
+    printWindow.style.position = 'absolute';
+    printWindow.style.top = '-1000px';
+    printWindow.style.left = '-1000px';
+    document.body.appendChild(printWindow);
+
+    const doc = printWindow.contentWindow?.document;
+    if (!doc) return;
+
+    // BURASI DEĞİŞTİ: Yazdırırken mantıklı olması için listeyi eskiden yeniye doğru (reverse) çeviriyoruz.
+    const chronologicalHistory = [...displayedHistory].reverse();
+
+    const transactionsHtml = chronologicalHistory.map(tx => `
+      <tr>
+        <td>${formatDate(tx.date)}</td>
+        <td>${tx.description}</td>
+        <td class="text-right" style="color: ${tx.type === 'tahsilat' ? '#16a34a' : '#dc2626'}">
+          ${tx.type === 'tahsilat' ? '+' : '-'}${formatCurrency(tx.amount)}
+        </td>
+        <td class="text-right font-bold">${formatCurrency(tx.snapshot.bakiye)}</td>
+      </tr>
+    `).join('');
+
+    const dateRangeText = (historyStartDate || historyEndDate) 
+      ? `<p style="margin-top:5px; font-size: 13px; color:#ef4444; font-weight: bold;">Filtrelenmiş Tarih: ${historyStartDate ? new Date(historyStartDate).toLocaleDateString('tr-TR') : 'Başlangıç'} / ${historyEndDate ? new Date(historyEndDate).toLocaleDateString('tr-TR') : 'Bugün'}</p>` 
+      : '';
+
+    doc.write(`
+      <html>
+        <head>
+          <title>${selectedAccount.name} - Hesap Ekstresi</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+            .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+            h1 { font-size: 24px; margin: 0 0 5px 0; }
+            .summary { display: flex; justify-content: space-between; margin-bottom: 30px; font-size: 14px; }
+            .summary-box { border: 1px solid #ddd; padding: 15px; border-radius: 8px; width: 30%; text-align: center; }
+            .summary-box.balance { background-color: #f8fafc; font-weight: bold; border-color: #cbd5e1; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+            th { background-color: #f1f5f9; }
+            .text-right { text-align: right; }
+            .print-date { font-size: 12px; color: #666; text-align: right; margin-top: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${selectedAccount.name}</h1>
+            <p style="margin:0; color:#666;">Telefon: ${selectedAccount.phone || '-'} | Hesap Ekstresi (Eskiden Yeniye)</p>
+            ${dateRangeText}
+          </div>
+          
+          <div class="summary">
+            <div class="summary-box">
+              <div style="font-size:11px; color:#666; text-transform:uppercase;">Toplam Borç</div>
+              <div style="font-size:18px; color:#dc2626; margin-top:5px;">${formatCurrency(selectedAccount.borc)}</div>
+            </div>
+            <div class="summary-box">
+              <div style="font-size:11px; color:#666; text-transform:uppercase;">Toplam Alacak</div>
+              <div style="font-size:18px; color:#16a34a; margin-top:5px;">${formatCurrency(selectedAccount.alacak)}</div>
+            </div>
+            <div class="summary-box balance">
+              <div style="font-size:11px; color:#333; text-transform:uppercase;">Net Bakiye</div>
+              <div style="font-size:18px; color:#0f172a; margin-top:5px;">${formatCurrency(selectedAccount.bakiye || 0)}</div>
+            </div>
+          </div>
+
+          <h3>İşlem Geçmişi (Ekstre)</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Tarih</th>
+                <th>Açıklama</th>
+                <th class="text-right">Tutar</th>
+                <th class="text-right">İşlem Sonrası Bakiye</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${transactionsHtml || '<tr><td colspan="4" style="text-align:center">Belirtilen tarihlerde işlem kaydı bulunamadı.</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="print-date">
+            Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    printWindow.contentWindow?.focus();
+    printWindow.contentWindow?.print();
+    setTimeout(() => { document.body.removeChild(printWindow); }, 1000);
+  };
 
   const filteredData = data.filter((account) => {
     const search = filterText.toLowerCase();
@@ -119,7 +260,7 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
               <TableHead className="hidden md:table-cell">Şehir</TableHead>
               <TableHead className="text-right text-destructive">Borç</TableHead>
               <TableHead className="text-right text-green-600">Alacak</TableHead>
-              <TableHead className="text-right">Bakiye</TableHead>
+              <TableHead className="text-right text-primary">Bakiye</TableHead>
               <TableHead className="text-right">İşlemler</TableHead>
             </TableRow>
           </TableHeader>
@@ -128,7 +269,7 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
                 <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Kayıt bulunamadı.</TableCell></TableRow>
             ) : (
                 filteredData.map((account) => {
-                const bakiye = account.alacak - account.borc
+                const bakiye = account.bakiye || 0;
                 return (
                     <TableRow key={account.id}>
                     <TableCell><div className={`flex h-9 w-9 items-center justify-center rounded-lg border ${account.type === 'corporate' ? 'bg-green-500/10 text-green-700' : 'bg-primary/10 text-primary'}`}>{account.type === "individual" ? <User className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}</div></TableCell>
@@ -136,7 +277,7 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
                     <TableCell className="hidden md:table-cell text-muted-foreground">{account.city || "-"}</TableCell>
                     <TableCell className="text-right text-destructive font-medium">{formatCurrency(account.borc)}</TableCell>
                     <TableCell className="text-right text-green-600 font-medium">{formatCurrency(account.alacak)}</TableCell>
-                    <TableCell className={`text-right font-bold ${bakiye >= 0 ? 'text-green-600' : 'text-destructive'}`}>{formatCurrency(bakiye)}</TableCell>
+                    <TableCell className={`text-right font-bold ${bakiye >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(bakiye)}</TableCell>
                     <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                         <Button variant="ghost" size="icon" onClick={() => handleViewDetails(account)}><Eye className="h-4 w-4 text-muted-foreground hover:text-foreground" /></Button>
@@ -145,7 +286,6 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => copyPhone(account.phone)}><Copy className="mr-2 h-4 w-4" /> Telefonu Kopyala</DropdownMenuItem>
-                            {/* 2. DÜZENLEME BUTONUNU BAĞLADIK */}
                             <DropdownMenuItem onClick={() => onEdit(account)}><Pencil className="mr-2 h-4 w-4" /> Düzenle</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive" onClick={() => onDelete(account.id)}><Trash2 className="mr-2 h-4 w-4" /> Sil</DropdownMenuItem>
@@ -161,36 +301,86 @@ export function AccountsTable({ data, onDelete, onEdit, onRefresh }: AccountsTab
         </Table>
       </div>
 
-      {/* Sheet ve Dialoglar (Aynı Kalıyor - Kısaltıldı) */}
       <Sheet open={!!selectedAccount} onOpenChange={(open) => !open && setSelectedAccount(null)}>
         <SheetContent className="sm:max-w-[500px] w-full overflow-y-auto">
-          <SheetHeader className="mb-6"><SheetTitle>Cari Detayı</SheetTitle><SheetDescription>Kayıtlı bilgiler.</SheetDescription></SheetHeader>
+          <SheetHeader className="mb-6"><SheetTitle>Cari Detayı</SheetTitle><SheetDescription>Kayıtlı bilgiler ve işlem geçmişi.</SheetDescription></SheetHeader>
           {selectedAccount && (
             <div className="space-y-6">
               <div className="flex items-center gap-4 p-5 rounded-xl border bg-card shadow-sm">
                  <div className={`flex h-14 w-14 items-center justify-center rounded-full border ${selectedAccount.type === 'corporate' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{selectedAccount.type === "individual" ? <User className="h-7 w-7" /> : <Building2 className="h-7 w-7" />}</div>
                  <div><h3 className="font-bold text-lg">{selectedAccount.name}</h3><div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 cursor-pointer hover:text-primary" onClick={() => copyPhone(selectedAccount.phone)}><Phone className="h-3 w-3" />{selectedAccount.phone}</div></div>
               </div>
-              <div className="space-y-4">
-                  <h4 className="font-semibold text-sm text-muted-foreground border-b pb-2">KİMLİK & İLETİŞİM</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div className="space-y-1"><span className="text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" /> E-posta</span><p className="font-medium truncate">{selectedAccount.email || "-"}</p></div>
-                      <div className="space-y-1"><span className="text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" /> Adres</span><p className="font-medium truncate">{selectedAccount.city || "-"} / {selectedAccount.district || "-"}</p></div>
-                      {selectedAccount.type === 'individual' ? (
-                          <div className="space-y-1 col-span-2"><span className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3 w-3" /> TC Kimlik No</span><p className="font-medium">{selectedAccount.tax_number || "-"}</p></div>
-                      ) : (
-                          <>
-                            <div className="space-y-1"><span className="text-muted-foreground flex items-center gap-1"><FileText className="h-3 w-3" /> Vergi No</span><p className="font-medium">{selectedAccount.tax_number || "-"}</p></div>
-                            <div className="space-y-1"><span className="text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" /> Vergi Dairesi</span><p className="font-medium">{selectedAccount.tax_office || "-"}</p></div>
-                          </>
-                      )}
-                  </div>
-                  {selectedAccount.type === 'corporate' && (
-                      <div className="mt-4"><h4 className="font-semibold text-sm text-muted-foreground border-b pb-2 pt-2 mb-3">YAPI & ARSA BİLGİLERİ</h4><div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 p-3 rounded-lg border border-dashed"><div className="space-y-1"><span className="text-muted-foreground text-xs">Arsa Payı</span><p className="font-medium">{selectedAccount.land_share || "-"}</p></div><div className="space-y-1"><span className="text-muted-foreground text-xs">Ada / Parsel</span><p className="font-medium">{selectedAccount.parcel || "-"}</p></div><div className="space-y-1"><span className="text-muted-foreground text-xs flex items-center gap-1"><Home className="h-3 w-3" /> Blok No</span><p className="font-medium">{selectedAccount.block_number || "-"}</p></div><div className="space-y-1"><span className="text-muted-foreground text-xs">Daire Sayısı</span><p className="font-medium">{selectedAccount.flat_count || "-"}</p></div></div></div>
-                  )}
+
+              <div className="grid grid-cols-3 gap-3">
+                 <div className="p-3 rounded-xl border bg-card shadow-sm text-center">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Toplam Borç</span>
+                    <div className="text-lg font-bold text-destructive mt-1">{formatCurrency(selectedAccount.borc)}</div>
+                 </div>
+                 <div className="p-3 rounded-xl border bg-card shadow-sm text-center">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Toplam Alacak</span>
+                    <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(selectedAccount.alacak)}</div>
+                 </div>
+                 <div className="p-3 rounded-xl border bg-primary/10 shadow-sm text-center">
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-wider flex items-center justify-center gap-1"><Wallet className="h-3 w-3"/> Net Bakiye</span>
+                    <div className="text-lg font-bold text-primary mt-1">{formatCurrency(selectedAccount.bakiye || 0)}</div>
+                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 pt-2"><div className="p-4 rounded-xl border bg-card shadow-sm"><span className="text-xs font-medium text-muted-foreground uppercase">Toplam Borç</span><div className="text-xl font-bold text-destructive mt-1">{formatCurrency(selectedAccount.borc)}</div></div><div className="p-4 rounded-xl border bg-card shadow-sm"><span className="text-xs font-medium text-muted-foreground uppercase">Toplam Alacak</span><div className="text-xl font-bold text-green-600 mt-1">{formatCurrency(selectedAccount.alacak)}</div></div></div>
-              <div><h4 className="font-semibold mb-3 flex items-center gap-2 border-b pb-2 mt-2"><Calendar className="h-4 w-4 text-muted-foreground" /> Son Hareketler</h4><div className="space-y-3">{accountHistory.length === 0 ? (<div className="text-sm text-muted-foreground text-center py-4 border rounded-lg border-dashed">Henüz işlem kaydı yok.</div>) : (accountHistory.map((tx, i) => (<div key={i} className="flex items-center justify-between p-3 rounded-lg border bg-card/50 hover:bg-muted/50 transition-colors"><div className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-full ${tx.type === 'tahsilat' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-destructive'}`}>{tx.type === 'tahsilat' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}</div><div><p className="text-sm font-medium">{tx.description}</p><p className="text-xs text-muted-foreground">{formatDate(tx.date)}</p></div></div><div className={`font-bold text-sm ${tx.type === 'tahsilat' ? 'text-green-600' : 'text-destructive'}`}>{tx.type === 'tahsilat' ? '+' : '-'}{formatCurrency(tx.amount)}</div></div>)))}</div></div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3 border-b pb-2 mt-2">
+                    <h4 className="font-semibold flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" /> 
+                        Hesap Ekstresi
+                    </h4>
+                    <Button variant="outline" size="sm" onClick={handlePrintHistory} className="h-8 gap-1.5">
+                        <Printer className="h-3.5 w-3.5" />
+                        Yazdır
+                    </Button>
+                </div>
+                
+                <div className="flex items-center gap-2 mb-4 bg-muted/30 p-2 rounded-md border border-dashed">
+                    <Input type="date" value={historyStartDate} onChange={(e) => setHistoryStartDate(e.target.value)} className="h-8 text-xs bg-background" />
+                    <span className="text-muted-foreground text-xs">-</span>
+                    <Input type="date" value={historyEndDate} onChange={(e) => setHistoryEndDate(e.target.value)} className="h-8 text-xs bg-background" />
+                    {(historyStartDate || historyEndDate) && (
+                        <Button variant="ghost" size="sm" className="h-8 px-2 text-destructive" onClick={() => { setHistoryStartDate(""); setHistoryEndDate(""); }}>Temizle</Button>
+                    )}
+                </div>
+
+                <div className="space-y-3">
+                    {displayedHistory.length === 0 ? (
+                        <div className="text-sm text-muted-foreground text-center py-4 border rounded-lg border-dashed">Belirtilen tarihte işlem bulunamadı.</div>
+                    ) : (
+                        displayedHistory.map((tx, i) => (
+                        <div key={i} className="flex flex-col p-3 rounded-lg border bg-card/50 hover:bg-muted/50 transition-colors">
+                           <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${tx.type === 'tahsilat' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-destructive'}`}>
+                                      {tx.type === 'tahsilat' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                                  </div>
+                                  <div>
+                                      <p className="text-sm font-medium">{tx.description}</p>
+                                      <p className="text-xs text-muted-foreground">{formatDate(tx.date)}</p>
+                                  </div>
+                              </div>
+                              <div className={`font-bold text-sm ${tx.type === 'tahsilat' ? 'text-green-600' : 'text-destructive'}`}>
+                                  {tx.type === 'tahsilat' ? '+' : '-'}{formatCurrency(tx.amount)}
+                              </div>
+                           </div>
+                           <div className="flex items-center justify-between mt-3 pt-2 border-t border-dashed text-[11px] text-muted-foreground">
+                              <span>İşlem Sonrası:</span>
+                              <div className="flex gap-3">
+                                 <span className="text-destructive/80">Borç: <span className="font-medium text-destructive">{formatCurrency(tx.snapshot.borc)}</span></span>
+                                 <span className="text-green-600/80">Alacak: <span className="font-medium text-green-600">{formatCurrency(tx.snapshot.alacak)}</span></span>
+                                 <span className="font-semibold text-primary/80">Bakiye: <span className="text-primary">{formatCurrency(tx.snapshot.bakiye)}</span></span>
+                              </div>
+                           </div>
+                        </div>
+                        ))
+                    )}
+                </div>
+              </div>
+
               <Button className="w-full py-6 text-base shadow-lg" onClick={() => openTransactionModal(selectedAccount)}><Plus className="mr-2 h-5 w-5" /> Yeni İşlem Ekle</Button>
             </div>
           )}

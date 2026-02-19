@@ -11,18 +11,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AccountsTable } from "@/components/accounts-table"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
-import { getAccounts, addAccount, deleteAccount, updateAccount } from "@/services/db" // Update fonksiyonunu ekledik
+import { getAccounts, addAccount, deleteAccount, updateAccount } from "@/services/db"
 
-// Ülke Listesi
+// Para birimi formatlayıcı (Yazdırma ekranı için gerekli)
+const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
+
 const countries = [
   { label: "Türkiye", value: "TR", code: "+90", flag: "🇹🇷" },
   { label: "ABD", value: "US", code: "+1", flag: "🇺🇸" },
   { label: "Almanya", value: "DE", code: "+49", flag: "🇩🇪" },
   { label: "İngiltere", value: "UK", code: "+44", flag: "🇬🇧" },
   { label: "Fransa", value: "FR", code: "+33", flag: "🇫🇷" },
-  { label: "Azerbaycan", value: "AZ", code: "+994", flag: "🇦🇿" },
-  { label: "Kıbrıs", value: "CY", code: "+357", flag: "🇨🇾" },
-  { label: "Rusya", value: "RU", code: "+7", flag: "🇷🇺" },
 ]
 
 export type Account = {
@@ -42,31 +41,26 @@ export type Account = {
   currency?: string;      
   borc: number;
   alacak: number;
+  bakiye: number; 
 }
 
 export default function AccountsPage() {
   const { toast } = useToast()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [showNewAccount, setShowNewAccount] = useState(false)
-  
-  // DÜZENLEME MODU İÇİN STATE
   const [editingId, setEditingId] = useState<string | null>(null)
-
-  // Form Durumları
   const [accountType, setAccountType] = useState<"individual" | "corporate">("individual")
   const [showBuildingInfo, setShowBuildingInfo] = useState(false) 
-  
   const [openCountry, setOpenCountry] = useState(false)
   const [selectedCountry, setSelectedCountry] = useState(countries[0])
 
-  // FORM DATASI
   const [formData, setFormData] = useState({
       ad: "", soyad: "", unvan: "", 
       tc: "", vkn: "", vergiDairesi: "",
       telefon: "", email: "", 
       city: "", district: "",
       arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "",
-      currency: "TRY", initialBalance: "", balanceType: "borc"
+      currency: "TRY", borc: "", alacak: "", bakiye: ""
   })
 
   const loadAccounts = async () => {
@@ -78,18 +72,92 @@ export default function AccountsPage() {
 
   useEffect(() => { loadAccounts() }, [])
 
-  // 1. DÜZENLEME FONKSİYONU (Formu Doldurur)
+  // --- LİSTEYİ YAZDIRMA FONKSİYONU ---
+  const handlePrintAccountsList = () => {
+    const printWindow = document.createElement('iframe');
+    printWindow.style.position = 'absolute';
+    printWindow.style.top = '-1000px';
+    printWindow.style.left = '-1000px';
+    document.body.appendChild(printWindow);
+
+    const doc = printWindow.contentWindow?.document;
+    if (!doc) return;
+
+    // Tüm carileri HTML tablo satırlarına dönüştür
+    const accountsHtml = accounts.map(acc => `
+      <tr>
+        <td>${acc.name}</td>
+        <td>${acc.phone || '-'}</td>
+        <td>${acc.city || '-'} / ${acc.district || '-'}</td>
+        <td class="text-right text-red">${formatCurrency(acc.borc || 0)}</td>
+        <td class="text-right text-green">${formatCurrency(acc.alacak || 0)}</td>
+        <td class="text-right font-bold">${formatCurrency(acc.bakiye || 0)}</td>
+      </tr>
+    `).join('');
+
+    doc.write(`
+      <html>
+        <head>
+          <title>Cari Hesap Listesi</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+            .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+            h1 { font-size: 24px; margin: 0 0 5px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 13px; }
+            th { background-color: #f1f5f9; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .text-red { color: #dc2626; }
+            .text-green { color: #16a34a; }
+            .print-date { font-size: 12px; color: #666; text-align: right; margin-top: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Cari Hesap Listesi</h1>
+            <p style="margin:0; color:#666;">İşletmenize ait tüm kayıtlı cari hesapların genel özet tablosudur.</p>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Ad / Ünvan</th>
+                <th>Telefon</th>
+                <th>Bölge</th>
+                <th class="text-right">Toplam Borç</th>
+                <th class="text-right">Toplam Alacak</th>
+                <th class="text-right">Bakiye</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${accountsHtml || '<tr><td colspan="6" style="text-align:center">Kayıtlı cari bulunamadı.</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="print-date">
+            Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    printWindow.contentWindow?.focus();
+    printWindow.contentWindow?.print();
+    setTimeout(() => { document.body.removeChild(printWindow); }, 1000);
+  };
+
   const handleEdit = (account: Account) => {
-      setEditingId(account.id); // Düzenleme modunu aç
+      setEditingId(account.id); 
       setAccountType(account.type);
       
-      // İsmi parçala (Şahıs ise Ad/Soyad diye ayırmaya çalışalım)
       let ad = "", soyad = "", unvan = "";
       if (account.type === "individual") {
           const parts = account.name.split(" ");
           if (parts.length > 1) {
-              soyad = parts.pop() || ""; // Son kelimeyi soyad yap
-              ad = parts.join(" "); // Kalanları ad yap
+              soyad = parts.pop() || ""; 
+              ad = parts.join(" "); 
           } else {
               ad = account.name;
           }
@@ -97,9 +165,7 @@ export default function AccountsPage() {
           unvan = account.name;
       }
 
-      // Telefonu temizle (Ülke kodunu ayıklamak zor olabilir, direkt koyalım)
       let phone = account.phone || "";
-      // Basitçe ülke kodunu silelim (+90 )
       phone = phone.replace("+90 ", "").replace("+1 ", "").replace("+49 ", "");
 
       setFormData({
@@ -116,33 +182,36 @@ export default function AccountsPage() {
           blokNo: account.block_number || "",
           daireSayisi: account.flat_count || "",
           currency: account.currency || "TRY",
-          initialBalance: "", // Düzenlemede açılış bakiyesi değiştirilmez, sıfır bırak
-          balanceType: "borc"
+          borc: account.borc.toString(),
+          alacak: account.alacak.toString(),
+          bakiye: account.bakiye.toString()
       });
 
-      setShowNewAccount(true); // Modalı aç
+      setShowNewAccount(true);
   }
 
-  // Yeni Ekleme Modunu Sıfırla
   const openNewAccountModal = () => {
-      setEditingId(null); // Düzenleme modunu kapat
+      setEditingId(null); 
       setFormData({ 
             ad: "", soyad: "", unvan: "", tc: "", vkn: "", vergiDairesi: "",
             telefon: "", email: "", city: "", district: "", 
             arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "",
-            currency: "TRY", initialBalance: "", balanceType: "borc" 
+            currency: "TRY", borc: "", alacak: "", bakiye: "" 
       });
       setShowNewAccount(true);
   }
 
   const handleSave = async () => {
     const displayName = accountType === "individual" ? `${formData.ad} ${formData.soyad}` : formData.unvan
-    
     if (!displayName.trim()) {
         toast({ title: "Hata", description: "Lütfen Ad/Soyad veya Ünvan giriniz.", variant: "destructive" }); return
     }
 
     try {
+        const parsedBorc = parseFloat(formData.borc) || 0;
+        const parsedAlacak = parseFloat(formData.alacak) || 0;
+        const parsedBakiye = parseFloat(formData.bakiye) || 0;
+
         const commonData = {
             type: accountType,
             name: displayName,
@@ -157,27 +226,16 @@ export default function AccountsPage() {
             parcel: formData.adaParsel,
             flat_count: formData.daireSayisi,
             currency: formData.currency,
+            borc: parsedBorc,
+            alacak: parsedAlacak,
+            bakiye: parsedBakiye
         };
 
         if (editingId) {
-            // GÜNCELLEME İŞLEMİ
             await updateAccount(editingId, commonData);
             toast({ title: "Güncellendi", description: "Cari bilgileri başarıyla güncellendi." })
         } else {
-            // YENİ KAYIT İŞLEMİ
-            let initialBorc = 0;
-            let initialAlacak = 0;
-            const balance = parseFloat(formData.initialBalance);
-            if (!isNaN(balance) && balance > 0) {
-                if (formData.balanceType === "borc") initialBorc = balance;
-                else initialAlacak = balance;
-            }
-
-            await addAccount({
-                ...commonData,
-                borc: initialBorc,
-                alacak: initialAlacak
-            });
+            await addAccount(commonData);
             toast({ title: "Başarılı", description: "Cari kart oluşturuldu." })
         }
 
@@ -187,7 +245,6 @@ export default function AccountsPage() {
 
     } catch (error) { 
         toast({ title: "Hata", description: "Kaydedilemedi.", variant: "destructive" }) 
-        console.error(error)
     }
   }
 
@@ -205,8 +262,13 @@ export default function AccountsPage() {
             <p className="text-muted-foreground mt-1">Müşteri ve tedarikçi hesapları.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => window.print()} className="gap-2"><Printer className="h-4 w-4" /> Yazdır</Button>
-          <Button onClick={openNewAccountModal} className="gap-2"><Plus className="h-4 w-4" /> Yeni Cari Ekle</Button>
+          {/* YAZDIR BUTONU YENİ FONKSİYONA BAĞLANDI */}
+          <Button variant="outline" onClick={handlePrintAccountsList} className="gap-2">
+            <Printer className="h-4 w-4" /> Yazdır
+          </Button>
+          <Button onClick={openNewAccountModal} className="gap-2">
+            <Plus className="h-4 w-4" /> Yeni Cari Ekle
+          </Button>
         </div>
       </div>
 
@@ -217,9 +279,8 @@ export default function AccountsPage() {
         </CardContent>
       </Card>
 
-      {/* MODAL (Ekleme ve Düzenleme İçin Ortak) */}
       <Dialog open={showNewAccount} onOpenChange={setShowNewAccount}>
-        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
               <DialogTitle>{editingId ? "Cari Düzenle" : "Yeni Cari Hesap"}</DialogTitle>
           </DialogHeader>
@@ -300,57 +361,33 @@ export default function AccountsPage() {
                 </div>
             </div>
 
-            {accountType === 'corporate' && (
-                <div className="border rounded-lg overflow-hidden animate-in fade-in slide-in-from-top-2">
-                    <button type="button" onClick={() => setShowBuildingInfo(!showBuildingInfo)} className="w-full flex items-center justify-between p-3 bg-muted/50 hover:bg-muted transition-colors">
-                        <span className="text-sm font-medium">Yapı & Arsa Bilgileri</span>
-                        {showBuildingInfo ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    </button>
-                    {showBuildingInfo && (
-                        <div className="p-3 space-y-3 bg-card border-t">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1"><Label className="text-xs">Arsa Payı</Label><Input placeholder="Örn: 15/1000" className="h-9" value={formData.arsaPayi} onChange={e => setFormData({...formData, arsaPayi: e.target.value})} /></div>
-                                <div className="space-y-1"><Label className="text-xs">Ada / Parsel</Label><Input placeholder="Örn: 123/45" className="h-9" value={formData.adaParsel} onChange={e => setFormData({...formData, adaParsel: e.target.value})} /></div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1"><Label className="text-xs">Blok No</Label><Input placeholder="Örn: A Blok" className="h-9" value={formData.blokNo} onChange={e => setFormData({...formData, blokNo: e.target.value})} /></div>
-                                <div className="space-y-1"><Label className="text-xs">Daire Sayısı</Label><Input placeholder="Örn: 24" className="h-9" value={formData.daireSayisi} onChange={e => setFormData({...formData, daireSayisi: e.target.value})} /></div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* DÜZENLEME MODUNDA FİNANSAL BİLGİLER GİZLENSİN (KARIŞIKLIĞI ÖNLEMEK İÇİN) */}
-            {!editingId && (
-                <div className="grid grid-cols-3 gap-3 p-3 bg-muted/30 rounded-lg border border-dashed">
+            <div className="border border-dashed p-4 rounded-lg bg-card/50">
+                <h4 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center justify-between">
+                    <span>Finansal Bilgiler</span>
+                    <Select value={formData.currency} onValueChange={v => setFormData({...formData, currency: v})}>
+                        <SelectTrigger className="w-[120px] h-8 text-xs bg-background"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="TRY">TRY (₺)</SelectItem>
+                            <SelectItem value="USD">USD ($)</SelectItem>
+                            <SelectItem value="EUR">EUR (€)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </h4>
+                <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                        <Label className="text-xs">Para Birimi</Label>
-                        <Select value={formData.currency} onValueChange={v => setFormData({...formData, currency: v})}>
-                            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="TRY">TRY (₺)</SelectItem>
-                                <SelectItem value="USD">USD ($)</SelectItem>
-                                <SelectItem value="EUR">EUR (€)</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <Label className="text-xs text-destructive">Toplam Borç</Label>
+                        <Input type="number" placeholder="0.00" value={formData.borc} onChange={e => setFormData({...formData, borc: e.target.value})} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label className="text-xs">Açılış Tutarı</Label>
-                        <Input type="number" className="h-9 text-sm" placeholder="0.00" value={formData.initialBalance} onChange={e => setFormData({...formData, initialBalance: e.target.value})} />
+                        <Label className="text-xs text-green-600">Toplam Alacak</Label>
+                        <Input type="number" placeholder="0.00" value={formData.alacak} onChange={e => setFormData({...formData, alacak: e.target.value})} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label className="text-xs">Durumu</Label>
-                        <Select value={formData.balanceType} onValueChange={v => setFormData({...formData, balanceType: v})}>
-                            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="borc">Borçlu (Verecek)</SelectItem>
-                                <SelectItem value="alacak">Alacaklı (Alacak)</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <Label className="text-xs text-primary font-bold">Açılış Bakiyesi</Label>
+                        <Input type="number" className="font-bold bg-muted/50" placeholder="0.00" value={formData.bakiye} onChange={e => setFormData({...formData, bakiye: e.target.value})} />
                     </div>
                 </div>
-            )}
+            </div>
 
           </div>
           <DialogFooter><Button onClick={handleSave} className="w-full sm:w-auto">{editingId ? "Güncelle" : "Kaydet"}</Button></DialogFooter>
