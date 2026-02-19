@@ -60,3 +60,8 @@ To develop or run this project locally:
 Open your terminal in the project folder and run:
 ```bash
 npm install
+```
+### 3. Run Development Server
+```bash
+npm run tauri dev
+```
