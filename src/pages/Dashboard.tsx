@@ -32,7 +32,6 @@ export default function Dashboard() {
 
   const selectedAccount = accounts.find(a => a.id.toString() === selectedAccountId)
 
-  // --- MATEMATİKSEL MANTIK BURADA DÜZELTİLDİ ---
   let statusColor = "text-muted-foreground bg-muted/20 border-muted"
   let statusText = "HESAP KAPALI (Sıfır Bakiye)"
   let StatusIcon = Wallet
@@ -42,21 +41,21 @@ export default function Dashboard() {
       const borc = selectedAccount.borc || 0;
       const alacak = selectedAccount.alacak || 0;
       
-      // Müşterinin Borcu - Müşterinin Alacağı
       netFark = borc - alacak;
 
       if (netFark > 0) {
-          // Müşterinin borcu daha yüksek
           statusColor = "text-green-700 bg-green-600/10 border-green-600/20"
           statusText = `BU CARİ SİZE BORÇLU (Tahsil Edilecek: ${formatCurrency(netFark)})`
           StatusIcon = CheckCircle2
       } else if (netFark < 0) {
-          // Müşterinin alacağı daha yüksek
           statusColor = "text-destructive bg-destructive/10 border-destructive/20"
           statusText = `BU CARİ SİZDEN ALACAKLI (Ödenecek: ${formatCurrency(Math.abs(netFark))})`
           StatusIcon = AlertCircle
       }
   }
+
+  // --- FİLTRELEME: Hızlı Eklenen Sahipleri (owner) Çıkar ---
+  const visibleAccounts = accounts.filter(acc => acc.type !== "owner");
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
@@ -82,7 +81,8 @@ export default function Dashboard() {
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all" className="font-semibold text-muted-foreground">-- Seçim Yapılmadı --</SelectItem>
-                        {accounts.map(acc => (
+                        {/* GÖRÜNÜR CARİLERİ MAPLİYORUZ */}
+                        {visibleAccounts.map(acc => (
                             <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name}</SelectItem>
                         ))}
                     </SelectContent>
@@ -145,7 +145,8 @@ export default function Dashboard() {
                              <div className="space-y-1">
                                 <p className="text-sm font-bold leading-none">{tx.accountName || "Silinmiş Cari"}</p>
                                 <p className="text-xs text-muted-foreground font-medium">
-                                    {tx.description} • {new Date(tx.date).toLocaleDateString('tr-TR')}
+                                    {/* SAAT GÖRÜNÜMÜ EKLENDİ */}
+                                    {tx.description} • {new Date(tx.date).toLocaleDateString('tr-TR')} {new Date(tx.date).toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'})}
                                 </p>
                              </div>
                         </div>
