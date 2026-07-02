@@ -4,12 +4,15 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import LoginPage from "@/pages/LoginPage";
 import AccountsPage from "@/pages/AccountsPage";
 import TransactionsPage from "@/pages/TransactionsPage";
+import LedgersPage from "@/pages/LedgersPage";
+import BankIntegrationPage from "@/pages/BankIntegrationPage";
 import ProfilePage from "@/pages/ProfilePage";
 import Dashboard from "@/pages/Dashboard"; // Burası 'components' değil 'pages' olmalı
 
 // --- MENÜ VE ÇERÇEVE ---
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/toaster";
 
 // Layout Bileşeni (Sidebar ve Header yapısı)
 function Layout({ children }: { children: React.ReactNode }) {
@@ -44,11 +47,14 @@ function App() {
         <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
         <Route path="/accounts" element={<Layout><AccountsPage /></Layout>} />
         <Route path="/transactions" element={<Layout><TransactionsPage /></Layout>} />
+        <Route path="/ledgers" element={<Layout><LedgersPage /></Layout>} />
+        <Route path="/bank-integration" element={<Layout><BankIntegrationPage /></Layout>} />
         <Route path="/profile" element={<Layout><ProfilePage /></Layout>} />
         
         {/* Hatalı link girilirse ana sayfaya yönlendir */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
+      <Toaster />
     </Router>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Eye, Plus, MoreHorizontal, User, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Filter, Wallet, Printer, ShieldCheck } from "lucide-react"
+import { Eye, Plus, MoreHorizontal, User, Star, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Filter, Wallet, Printer, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
@@ -79,7 +79,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
     if (!transactionAccount || !txAmount || !txDate) { toast({ title: "Hata", description: "Doldurun.", variant: "destructive" }); return }
     try {
         await addTransaction({ 
-            accountId: Number(transactionAccount.id), type: txType, 
+            accountId: transactionAccount.id, type: txType, 
             amount: parseFloat(txAmount), description: txDesc || (txType === 'tahsilat' ? 'Tahsilat' : 'Ödeme'), 
             date: txDate, method: txMethod 
         });
@@ -257,15 +257,18 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
                 return (
                     <TableRow key={account.id}>
-                    <TableCell><div className={`flex h-9 w-9 items-center justify-center rounded-lg border ${account.type === 'corporate' ? 'bg-green-500/10 text-green-700' : 'bg-primary/10 text-primary'}`}>{account.type === "individual" ? <User className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}</div></TableCell>
+                    <TableCell><div className={`flex h-9 w-9 items-center justify-center rounded-lg border ${account.type === 'corporate' ? 'bg-green-500/10 text-green-700' : account.type === 'customer' ? 'bg-purple-500/10 text-purple-700' : 'bg-primary/10 text-primary'}`}>{account.type === "individual" ? <User className="h-4 w-4" /> : account.type === "customer" ? <Star className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}</div></TableCell>
                     <TableCell className="font-medium">
-                        {account.name}
+                        <div className="flex items-center gap-1.5">
+                            {account.name}
+                            {account.type === 'customer' && <Badge variant="secondary" className="text-[9px] px-1.5 h-4 py-0 bg-purple-100 text-purple-700 border-purple-200">VIP / Özel</Badge>}
+                        </div>
                         {account.type === 'corporate' && account.owner_id && (
                              <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5"><ShieldCheck className="h-3 w-3"/> {getOwnerName(account.owner_id)}</div>
                         )}
                         <div className="text-xs text-muted-foreground">{account.phone}</div>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell text-muted-foreground">{account.city || "-"}</TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground">{account.type === 'customer' ? (account.customer_group || "-") : (account.city || "-")}</TableCell>
                     <TableCell className="text-right text-destructive font-medium">{formatCurrency(account.borc)}</TableCell>
                     <TableCell className="text-right text-green-600 font-medium">{formatCurrency(account.alacak)}</TableCell>
                     <TableCell className="text-right font-semibold text-foreground">{formatCurrency(account.bakiye || 0)}</TableCell>
@@ -298,9 +301,12 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
           {selectedAccount && (
             <div className="space-y-6 mt-6">
               <div className="flex items-center gap-4 p-5 rounded-xl border bg-card shadow-sm">
-                 <div className={`flex h-14 w-14 items-center justify-center rounded-full border ${selectedAccount.type === 'corporate' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{selectedAccount.type === "individual" ? <User className="h-7 w-7" /> : <Building2 className="h-7 w-7" />}</div>
+                 <div className={`flex h-14 w-14 items-center justify-center rounded-full border ${selectedAccount.type === 'corporate' ? 'bg-green-100 text-green-700' : selectedAccount.type === 'customer' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{selectedAccount.type === "individual" ? <User className="h-7 w-7" /> : selectedAccount.type === "customer" ? <Star className="h-7 w-7" /> : <Building2 className="h-7 w-7" />}</div>
                  <div>
-                    <h3 className="font-bold text-lg">{selectedAccount.name}</h3>
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      {selectedAccount.name}
+                      {selectedAccount.type === 'customer' && <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700">VIP / Özel Müşteri</Badge>}
+                    </h3>
                     {selectedAccount.type === 'corporate' && selectedAccount.owner_id && (
                         <div className="flex items-center gap-1 text-sm text-primary font-medium mt-0.5"><ShieldCheck className="h-4 w-4"/> Sahibi: {getOwnerName(selectedAccount.owner_id)}</div>
                     )}

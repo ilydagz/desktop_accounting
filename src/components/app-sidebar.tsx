@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "next-themes"
-import { LayoutDashboard, Users, ArrowRightLeft, Search, Sun, Moon, User, LogOut } from "lucide-react"
+import { LayoutDashboard, Users, ArrowRightLeft, Search, Sun, Moon, User, LogOut, Wallet, Landmark } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Link } from "react-router-dom"
@@ -13,34 +13,58 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/contexts/AuthContext"
 
-const navItems = [
-  {
-    title: "Genel Bakış",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Cariler",
-    href: "/accounts",
-    icon: Users,
-  },
-  {
-    title: "Kasa & Hareketler",
-    href: "/transactions",
-    icon: ArrowRightLeft,
-  },
-]
 
 export function AppSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const pathname = location.pathname
   const { theme, setTheme } = useTheme()
+  const { user, institutionName, institutionType, signOut } = useAuth()
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
   }
+
+  const getAccountsTitle = () => {
+    switch(institutionType) {
+      case 'sirket': return "Cariler";
+      case 'koop': return "Kooperatif Üyeleri";
+      case 'apartman': return "Kat Malikleri / Sakinler";
+      case 'dernek': return "Üyeler / Bağışçılar";
+      case 'bireysel': return "Kişiler / Borçlular";
+      default: return "Cariler";
+    }
+  }
+
+  const navItems = [
+    {
+      title: "Genel Bakış",
+      href: "/dashboard",
+      icon: LayoutDashboard,
+    },
+    {
+      title: getAccountsTitle(),
+      href: "/accounts",
+      icon: Users,
+    },
+    {
+      title: "Kasa & Hareketler",
+      href: "/transactions",
+      icon: ArrowRightLeft,
+    },
+    {
+      title: "Kasa & Bankalar",
+      href: "/ledgers",
+      icon: Wallet,
+    },
+    {
+      title: "Banka Entegrasyonları",
+      href: "/bank-integration",
+      icon: Landmark,
+    },
+  ]
 
   const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -49,9 +73,9 @@ export function AppSidebar() {
   }
 
   // ÇIKIŞ YAPMA FONKSİYONU
-  const handleLogout = (e: React.MouseEvent) => {
+  const handleLogout = async (e: React.MouseEvent) => {
     e.stopPropagation() // Profil sayfasına gitmesini engelle (Tıklamayı durdur)
-    // İleride burada token silme vs. yapılabilir
+    await signOut()
     navigate("/") // Giriş sayfasına at
   }
 
@@ -63,8 +87,8 @@ export function AppSidebar() {
                 <LayoutDashboard className="h-5 w-5" />
             </div>
             <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-                <span className="font-semibold">Muhasebe</span>
-                <span className="text-xs text-muted-foreground">Cari Takip v2</span>
+                <span className="font-semibold">{institutionName || "Limes Muhasebe"}</span>
+                <span className="text-xs text-muted-foreground">{getAccountsTitle()} Takibi</span>
             </div>
         </div>
         
@@ -72,7 +96,7 @@ export function AppSidebar() {
             <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input 
-                    placeholder="Cari Ara..." 
+                    placeholder="Ara..." 
                     className="pl-9 bg-sidebar-accent/50" 
                     onKeyDown={handleSearch} 
                 />
@@ -90,12 +114,12 @@ export function AppSidebar() {
               <SidebarMenuButton 
                 asChild 
                 isActive={pathname === item.href}
-                tooltip={item.title}
+                tooltip={item.title === "Cariler" ? getAccountsTitle() : item.title}
                 className="h-10"
               >
                 <Link to={item.href}>
                   <item.icon className="!h-5 !w-5" />
-                  <span>{item.title}</span>
+                  <span>{item.title === "Cariler" ? getAccountsTitle() : item.title}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -133,8 +157,8 @@ export function AppSidebar() {
                     </div>
                     
                     <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                        <span className="truncate font-semibold">Ahmet Y.</span>
-                        <span className="truncate text-xs text-muted-foreground">Muhasebeci</span>
+                        <span className="truncate font-semibold">{user?.email?.split('@')[0] || "Kullanıcı"}</span>
+                        <span className="truncate text-xs text-muted-foreground">{user?.email || "Yönetici"}</span>
                     </div>
 
                     {/* ÇIKIŞ BUTONU - ÖZELLEŞTİRİLDİ */}

@@ -1,165 +1,192 @@
-import Database from "@tauri-apps/plugin-sql";
+import { supabase } from "@/lib/supabase";
 
-const DB_NAME = "limes_v5.db"; // YENİ SÜRÜM (method eklendi)
+// Oturum açan kullanıcının kurum ID'sini getirir
+async function getInstitutionId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Oturum bulunamadı");
 
-let dbPromise: Promise<Database> | null = null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('institution_id')
+    .eq('id', user.id)
+    .single();
 
-export async function getDb() {
-  if (!dbPromise) {
-    dbPromise = Database.load(`sqlite:${DB_NAME}`);
-  }
-  return await dbPromise;
+  if (error || !data) throw new Error("Kurum bilgisi bulunamadı");
+  return data.institution_id;
 }
 
+// Demo Mod Kontrolü
+const isDemoMode = import.meta.env.VITE_SUPABASE_URL === undefined || import.meta.env.VITE_SUPABASE_URL === "";
+
+// Geriye Dönük Uyumluluk için boş init
 export async function initDB() {
-  const db = await getDb();
-  
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      tax_number TEXT,
-      tax_office TEXT,
-      phone TEXT,
-      email TEXT,
-      city TEXT,
-      district TEXT,
-      land_share TEXT,
-      block_number TEXT,
-      parcel TEXT,
-      flat_count TEXT,
-      owner_id INTEGER,
-      currency TEXT DEFAULT 'TRY',
-      borc REAL DEFAULT 0,
-      alacak REAL DEFAULT 0,
-      bakiye REAL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      account_id INTEGER,
-      type TEXT NOT NULL,
-      amount REAL NOT NULL,
-      description TEXT,
-      method TEXT DEFAULT 'Nakit', -- YENİ EKLENDİ (Ödeme Yöntemi)
-      date TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
-    )
-  `);
+  if (isDemoMode) console.warn("DEMO MOD: Supabase ayarları eksik. Veriler kaydedilmeyecektir.");
 }
+
+// --- ACCOUNTS (CARİLER) ---
 
 export async function getAccounts() {
-  const db = await getDb();
-  const result = await db.select<any[]>("SELECT * FROM accounts ORDER BY id DESC");
-  return result.map(acc => ({...acc, id: acc.id.toString(), owner_id: acc.owner_id ? acc.owner_id.toString() : null}));
+  if (isDemoMode) return [];
+  const { data, error } = await supabase.from('accounts').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
 }
 
 export async function addAccount(account: any) {
-  const db = await getDb();
-  const query = `
-    INSERT INTO accounts (
-      type, name, tax_number, tax_office, phone, email, 
-      city, district, land_share, block_number, parcel, flat_count,
-      owner_id, currency, borc, alacak, bakiye
-    ) 
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-  `;
-  await db.execute(query, [
-    account.type, account.name, account.tax_number, account.tax_office, 
-    account.phone, account.email, account.city, account.district, 
-    account.land_share, account.block_number, account.parcel, account.flat_count, 
-    account.owner_id ? Number(account.owner_id) : null,
-    account.currency, account.borc, account.alacak, account.bakiye
-  ]);
+  if (isDemoMode) return;
+  const institution_id = await getInstitutionId();
+  const { error } = await supabase.from('accounts').insert([{ ...account, institution_id }]);
+  if (error) throw error;
 }
 
 export async function deleteAccount(id: string) {
-  const db = await getDb();
-  await db.execute("DELETE FROM accounts WHERE id = $1", [Number(id)]);
+  if (isDemoMode) return;
+  const { error } = await supabase.from('accounts').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function updateAccount(id: string, account: any) {
-  const db = await getDb();
-  const query = `
-    UPDATE accounts SET 
-      type = $1, name = $2, tax_number = $3, tax_office = $4, phone = $5, 
-      email = $6, city = $7, district = $8, land_share = $9, block_number = $10, 
-      parcel = $11, flat_count = $12, owner_id = $13, currency = $14,
-      borc = $15, alacak = $16, bakiye = $17
-    WHERE id = $18
-  `;
-  await db.execute(query, [
-    account.type, account.name, account.tax_number, account.tax_office, account.phone, 
-    account.email, account.city, account.district, account.land_share, account.block_number, 
-    account.parcel, account.flat_count, account.owner_id ? Number(account.owner_id) : null, 
-    account.currency, account.borc, account.alacak, account.bakiye, Number(id)
-  ]);
+  if (isDemoMode) return;
+  const { error } = await supabase.from('accounts').update(account).eq('id', id);
+  if (error) throw error;
 }
 
-export async function getTransactionsByAccount(accountId: string, startDate?: string, endDate?: string) {
-  const db = await getDb();
-  let query = "SELECT * FROM transactions WHERE account_id = $1";
-  const params: any[] = [accountId];
+// --- LEDGERS (KASA / BANKA) ---
 
-  if (startDate) { query += ` AND date >= $${params.length + 1}`; params.push(startDate); }
-  if (endDate) { query += ` AND date <= $${params.length + 1}`; params.push(endDate); }
-  query += " ORDER BY date DESC, created_at DESC";
-  return await db.select<any[]>(query, params);
+export async function getLedgers() {
+  if (isDemoMode) return [];
+  const { data, error } = await supabase.from('ledgers').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function addLedger(ledger: { type: 'kasa' | 'banka', name: string, currency?: string }) {
+  if (isDemoMode) return;
+  const institution_id = await getInstitutionId();
+  const { error } = await supabase.from('ledgers').insert([{ ...ledger, institution_id }]);
+  if (error) throw error;
+}
+
+// --- TRANSACTIONS (İŞLEMLER) ---
+
+export async function getTransactionsByAccount(accountId: string, startDate?: string, endDate?: string) {
+  if (isDemoMode) return [];
+  let query = supabase.from('transactions').select('*').eq('account_id', accountId);
+  
+  if (startDate) query = query.gte('date', startDate);
+  if (endDate) query = query.lte('date', endDate);
+  
+  const { data, error } = await query.order('date', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
 }
 
 export async function getTransactions() {
-  const db = await getDb();
-  return await db.select<any[]>("SELECT t.*, a.name as accountName FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id ORDER BY t.date DESC, t.created_at DESC");
+  if (isDemoMode) return [];
+  const { data, error } = await supabase
+    .from('transactions')
+    .select(`
+      *,
+      accounts ( name ),
+      ledgers ( name )
+    `)
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
+    
+  if (error) throw error;
+  
+  // Eski UI ile uyumlu olması için accountName ekleyelim
+  return data.map(tx => ({
+    ...tx,
+    accountName: tx.accounts?.name,
+    ledgerName: tx.ledgers?.name
+  }));
 }
 
-// YÖNTEM PARAMETRESİ EKLENDİ
-export async function addTransaction(tx: { accountId: number, type: 'tahsilat' | 'odeme', amount: number, description: string, date: string, method: string }) {
-  const db = await getDb();
-  await db.execute(
-      "INSERT INTO transactions (account_id, type, amount, description, date, method) VALUES ($1, $2, $3, $4, $5, $6)", 
-      [tx.accountId, tx.type, tx.amount, tx.description, tx.date, tx.method]
-  );
-  if (tx.type === 'tahsilat') {
-    await db.execute("UPDATE accounts SET alacak = alacak + $1, bakiye = bakiye + $1 WHERE id = $2", [tx.amount, tx.accountId]);
-  } else {
-    await db.execute("UPDATE accounts SET borc = borc + $1, bakiye = bakiye - $1 WHERE id = $2", [tx.amount, tx.accountId]);
+export async function addTransaction(tx: { accountId: string, ledgerId?: string | null, type: 'tahsilat' | 'odeme', amount: number, description: string, date: string, method: string, maturity_date?: string, interest_rate?: number, interest_type?: string, is_interest?: boolean, parent_id?: string }) {
+  if (isDemoMode) return;
+  const institution_id = await getInstitutionId();
+  
+  // 1. İşlemi ekle
+  const { error: txError } = await supabase.from('transactions').insert([{
+    institution_id,
+    account_id: tx.accountId,
+    ledger_id: tx.ledgerId || null,
+    type: tx.type,
+    amount: tx.amount,
+    description: tx.description,
+    method: tx.method,
+    date: tx.date,
+    maturity_date: tx.maturity_date || null,
+    interest_rate: tx.interest_rate || 0,
+    interest_type: tx.interest_type || null,
+    is_interest: tx.is_interest || false,
+    parent_id: tx.parent_id || null
+  }]);
+  
+  if (txError) throw txError;
+
+  // 2. Cari bakiyeyi güncelle
+  const { data: accData } = await supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.accountId).single();
+  
+  if (accData) {
+    let { borc, alacak, bakiye } = accData;
+    if (tx.type === 'tahsilat') {
+      alacak += tx.amount;
+      bakiye += tx.amount;
+    } else {
+      borc += tx.amount;
+      bakiye -= tx.amount;
+    }
+    await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', tx.accountId);
+  }
+
+  // 3. Kasa/Banka bakiyesini güncelle
+  if (tx.ledgerId) {
+    const { data: lData } = await supabase.from('ledgers').select('balance').eq('id', tx.ledgerId).single();
+    if (lData) {
+      let balance = lData.balance;
+      if (tx.type === 'tahsilat') {
+        balance += tx.amount; // Tahsilat kasaya para sokar
+      } else {
+        balance -= tx.amount; // Ödeme kasadan para çıkarır
+      }
+      await supabase.from('ledgers').update({ balance }).eq('id', tx.ledgerId);
+    }
   }
 }
 
 export async function deleteTransaction(txId: string) {
-  const db = await getDb();
-  const result = await db.select<any[]>("SELECT * FROM transactions WHERE id = $1", [Number(txId)]);
-  if (result.length === 0) return;
-  const tx = result[0];
+  if (isDemoMode) return;
+  
+  // Önce işlemi bul
+  const { data: tx } = await supabase.from('transactions').select('*').eq('id', txId).single();
+  if (!tx) return;
 
-  if (tx.type === 'tahsilat') {
-    await db.execute("UPDATE accounts SET alacak = alacak - $1, bakiye = bakiye - $1 WHERE id = $2", [tx.amount, tx.account_id]);
-  } else {
-    await db.execute("UPDATE accounts SET borc = borc - $1, bakiye = bakiye + $1 WHERE id = $2", [tx.amount, tx.account_id]);
+  // İşlemi sil
+  await supabase.from('transactions').delete().eq('id', txId);
+
+  // Bakiyeleri geri al
+  const { data: accData } = await supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.account_id).single();
+  if (accData) {
+    let { borc, alacak, bakiye } = accData;
+    if (tx.type === 'tahsilat') {
+      alacak -= tx.amount;
+      bakiye -= tx.amount;
+    } else {
+      borc -= tx.amount;
+      bakiye += tx.amount;
+    }
+    await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', tx.account_id);
   }
-  await db.execute("DELETE FROM transactions WHERE id = $1", [Number(txId)]);
-}
 
-// YÖNTEM PARAMETRESİ EKLENDİ
-export async function updateTransaction(txId: string, newData: { type: 'tahsilat' | 'odeme', amount: number, description: string, date: string, method: string }) {
-  const db = await getDb();
-  const result = await db.select<any[]>("SELECT * FROM transactions WHERE id = $1", [Number(txId)]);
-  if (result.length === 0) return;
-  const oldTx = result[0];
-
-  if (oldTx.type === 'tahsilat') await db.execute("UPDATE accounts SET alacak = alacak - $1, bakiye = bakiye - $1 WHERE id = $2", [oldTx.amount, oldTx.account_id]);
-  else await db.execute("UPDATE accounts SET borc = borc - $1, bakiye = bakiye + $1 WHERE id = $2", [oldTx.amount, oldTx.account_id]);
-
-  if (newData.type === 'tahsilat') await db.execute("UPDATE accounts SET alacak = alacak + $1, bakiye = bakiye + $1 WHERE id = $2", [newData.amount, oldTx.account_id]);
-  else await db.execute("UPDATE accounts SET borc = borc + $1, bakiye = bakiye - $1 WHERE id = $2", [newData.amount, oldTx.account_id]);
-
-  await db.execute(
-      "UPDATE transactions SET type = $1, amount = $2, description = $3, date = $4, method = $5 WHERE id = $6", 
-      [newData.type, newData.amount, newData.description, newData.date, newData.method, Number(txId)]
-  );
+  if (tx.ledger_id) {
+    const { data: lData } = await supabase.from('ledgers').select('balance').eq('id', tx.ledger_id).single();
+    if (lData) {
+      let balance = lData.balance;
+      if (tx.type === 'tahsilat') balance -= tx.amount;
+      else balance += tx.amount;
+      await supabase.from('ledgers').update({ balance }).eq('id', tx.ledger_id);
+    }
+  }
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2, Users, ArrowRightLeft } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getAccounts, getTransactions } from "@/services/db"
@@ -56,6 +56,76 @@ export default function Dashboard() {
 
   // --- FİLTRELEME: Hızlı Eklenen Sahipleri (owner) Çıkar ---
   const visibleAccounts = accounts.filter(acc => acc.type !== "owner");
+
+  // Eğer hiç cari (Müşteri/Üye vb.) eklenmemişse Boş Durum Rehberi göster:
+  if (visibleAccounts.length === 0) {
+    return (
+      <div className="flex flex-col gap-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
+        <div className="text-center space-y-2 mb-4">
+          <h1 className="text-4xl font-bold tracking-tight text-primary">Limes Muhasebe'ye Hoş Geldiniz! 🍋</h1>
+          <p className="text-lg text-muted-foreground">Sisteminizin kurulumunu tamamlamak ve finansal takibe başlamak için aşağıdaki adımları izleyin.</p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2">
+          <Card className="border-2 border-primary/20 shadow-md">
+            <CardHeader className="bg-primary/5 pb-4">
+              <CardTitle className="flex items-center gap-2 text-xl"><Wallet className="text-primary"/> 1. Kasa ve Bankalar</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">Kasa Nedir?</strong> İşletmenize ait nakit paraların durduğu fiziki yerdir (Merkez Kasa vb.). <br/>
+                <strong className="text-foreground">Banka Nedir?</strong> Havale/EFT işlemlerinizin geçtiği resmi hesaplarınızdır (İş Bankası, Ziraat vb.).
+              </p>
+              <div className="p-3 bg-muted rounded-lg text-sm border">
+                <strong>Nasıl Başlarım?</strong> Sol menüden <em>Kasa & Bankalar</em> sayfasına gidin ve kullandığınız hesapları sisteme tanımlayın.
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-2 border-primary/20 shadow-md">
+            <CardHeader className="bg-primary/5 pb-4">
+              <CardTitle className="flex items-center gap-2 text-xl"><Users className="text-primary"/> 2. Cari Hesaplar</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-foreground">Cari Nedir?</strong> Ticaret yaptığınız kişi veya kurumlardır (Müşteriler, Tedarikçiler, Daire Sakinleri vb.).
+              </p>
+              <div className="p-3 bg-muted rounded-lg text-sm border">
+                <strong>Nasıl Başlarım?</strong> Sol menüden <em>Cariler</em> sayfasına gidin ve işlem yapacağınız kişileri sisteme ekleyin.
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="border-2 shadow-sm mt-2">
+          <CardHeader className="bg-muted/30 pb-4">
+            <CardTitle className="flex items-center gap-2 text-xl"><ArrowRightLeft className="text-primary"/> 3. İşlem Mantığı (Tahsilat ve Ödeme)</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="flex gap-4">
+                <div className="mt-1 bg-green-100 text-green-700 p-2 rounded-full h-10 w-10 flex items-center justify-center shrink-0"><ArrowUp/></div>
+                <div>
+                  <h3 className="font-bold text-green-700">Tahsilat (Alacak)</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Sizin bir cariden para almanız demektir. Bu işlem seçtiğiniz kasanıza para sokar ve o kişinin size olan borcunu azaltır.</p>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <div className="mt-1 bg-red-100 text-red-700 p-2 rounded-full h-10 w-10 flex items-center justify-center shrink-0"><ArrowDown/></div>
+                <div>
+                  <h3 className="font-bold text-red-700">Ödeme (Borç)</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Sizin bir cariye para vermeniz veya masraf yapmanızdır. Kasanızdan para çıkar ve o kişinin size olan borcunu artırır.</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 p-4 border-l-4 border-orange-500 bg-orange-50 text-sm">
+              <strong>İpucu:</strong> Tüm alım-satım ve para transferlerinizi sol menüdeki <em>Kasa ve Hareketler</em> sayfasından "Yeni İşlem Ekle" butonuna basarak yapabilirsiniz. Ayrıca aynı menüden geciken borçlara <strong>Faiz/Gecikme Zammı</strong> ekleyebilirsiniz.
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
