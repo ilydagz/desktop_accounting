@@ -17,7 +17,7 @@
         "height": 600,
         "resizable": true,
         "fullscreen": false,
-        "maximized": true, 
+        "maximized": true,
         "visible": true
       }
     ],
@@ -38,5 +38,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/USERNAME/limes-v2/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5MEQ2NzkxRTJCMjdEOUEKUldTYWZiTGlrV2NOS2VCWERoNDNtdHllbmJoVThCaytyVnRwQUs5MU11ajRJc29CZkVQQzA5OGoK"
+    }
   }
 }

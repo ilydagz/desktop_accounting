@@ -13,6 +13,7 @@ import Dashboard from "@/pages/Dashboard"; // Burası 'components' değil 'pages
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/toaster";
+import { AutoUpdater } from "@/components/AutoUpdater";
 
 // Layout Bileşeni (Sidebar ve Header yapısı)
 function Layout({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <Router>
+      <AutoUpdater />
       <Routes>
         {/* Login Sayfası (Layout dışındadır) */}
         <Route path="/" element={<LoginPage />} />
