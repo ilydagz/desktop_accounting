@@ -46,26 +46,31 @@ jobs:
       - name: Deploy assets to Public Repository
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLIC_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         shell: bash
         run: |
           VERSION="${{ steps.tauri.outputs.appVersion }}"
           TAG="v$VERSION"
-          echo "Publishing to ilydagz/limes-v2-releases..."
+          echo "Downloading latest.json from current release..."
           
-          cd src-tauri/target/release/bundle
+          # Wait a few seconds to ensure the release is fully propagated by tauri-action
+          sleep 5
+          gh release download "$TAG" -p "latest.json"
           
           # Change download URL in latest.json to point to the public repo
-          sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' updater/latest.json
+          sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' latest.json
+          cat latest.json
           
-          cat updater/latest.json
+          echo "Publishing to ilydagz/limes-v2-releases..."
+          cd src-tauri/target/release/bundle
           
           # Create release in public repository and upload assets
-          gh release create "$TAG" \
+          GH_TOKEN=$PUBLIC_TOKEN gh release create "$TAG" \
             msi/*.msi \
             msi/*.msi.zip \
             msi/*.msi.zip.sig \
-            updater/latest.json \
+            ../../../../latest.json \
             --repo ilydagz/limes-v2-releases \
             --title "Limes Muhasebe $TAG" \
             --notes "Masaüstü güncel sürümü yayınlandı."
