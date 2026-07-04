@@ -30,7 +30,8 @@ jobs:
       - name: install dependencies
         run: npm install
 
-      - uses: tauri-apps/tauri-action@v0
+      - id: tauri
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -41,3 +42,30 @@ jobs:
           releaseBody: 'Yeni masaüstü sürümü yayınlandı. Uygulama içinden otomatik güncelleyebilir veya .exe dosyasını indirip kurabilirsiniz.'
           releaseDraft: false
           prerelease: false
+
+      - name: Deploy assets to Public Repository
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.tauri.outputs.appVersion }}"
+          TAG="v$VERSION"
+          echo "Publishing to ilydagz/limes-v2-releases..."
+          
+          cd src-tauri/target/release/bundle
+          
+          # Change download URL in latest.json to point to the public repo
+          sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' updater/latest.json
+          
+          cat updater/latest.json
+          
+          # Create release in public repository and upload assets
+          gh release create "$TAG" \
+            msi/*.msi \
+            msi/*.msi.zip \
+            msi/*.msi.zip.sig \
+            updater/latest.json \
+            --repo ilydagz/limes-v2-releases \
+            --title "Limes Muhasebe $TAG" \
+            --notes "Masaüstü güncel sürümü yayınlandı."
