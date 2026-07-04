@@ -121,7 +121,8 @@ export async function addTransaction(tx: { accountId: string, ledgerId?: string 
     interest_rate: tx.interest_rate || 0,
     interest_type: tx.interest_type || null,
     is_interest: tx.is_interest || false,
-    parent_id: tx.parent_id || null
+    parent_id: tx.parent_id || null,
+    is_paid: false
   }]);
   
   if (txError) throw txError;
@@ -139,6 +140,10 @@ export async function addTransaction(tx: { accountId: string, ledgerId?: string 
       bakiye -= tx.amount;
     }
     await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', tx.accountId);
+
+    if (alacak >= borc) {
+      await supabase.from('transactions').update({ is_paid: true }).eq('account_id', tx.accountId).eq('is_paid', false).gt('interest_rate', 0).eq('type', 'odeme');
+    }
   }
 
   // 3. Kasa/Banka bakiyesini güncelle
@@ -187,6 +192,74 @@ export async function deleteTransaction(txId: string) {
       if (tx.type === 'tahsilat') balance -= tx.amount;
       else balance += tx.amount;
       await supabase.from('ledgers').update({ balance }).eq('id', tx.ledger_id);
+    }
+  }
+}
+
+export async function updateTransactionPaidStatus(txId: string, isPaid: boolean) {
+  if (isDemoMode) return;
+  const { error } = await supabase.from('transactions').update({ is_paid: isPaid }).eq('id', txId);
+  if (error) throw error;
+}
+
+export async function addTransactionToMultipleAccounts(accountIds: string[], txTemplate: any) {
+  if (isDemoMode) return;
+  const institution_id = await getInstitutionId();
+  
+  // Create transactions array
+  const inserts = accountIds.map(accountId => ({
+    institution_id,
+    account_id: accountId,
+    ledger_id: txTemplate.ledgerId || null,
+    type: txTemplate.type,
+    amount: txTemplate.amount,
+    description: txTemplate.description,
+    method: txTemplate.method,
+    date: txTemplate.date,
+    maturity_date: txTemplate.maturity_date || null,
+    interest_rate: txTemplate.interest_rate || 0,
+    interest_type: txTemplate.interest_type || null,
+    is_interest: txTemplate.is_interest || false,
+    parent_id: txTemplate.parent_id || null,
+    is_paid: false
+  }));
+
+  const { error } = await supabase.from('transactions').insert(inserts);
+  if (error) throw error;
+
+  // Update balances for all accounts
+  const { data: accountsData } = await supabase.from('accounts').select('id, borc, alacak, bakiye').in('id', accountIds);
+  
+  if (accountsData) {
+    for (const acc of accountsData) {
+      let { borc, alacak, bakiye } = acc;
+      if (txTemplate.type === 'tahsilat') {
+        alacak += txTemplate.amount;
+        bakiye += txTemplate.amount;
+      } else {
+        borc += txTemplate.amount;
+        bakiye -= txTemplate.amount;
+      }
+      await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', acc.id);
+
+      if (alacak >= borc) {
+        await supabase.from('transactions').update({ is_paid: true }).eq('account_id', acc.id).eq('is_paid', false).gt('interest_rate', 0).eq('type', 'odeme');
+      }
+    }
+  }
+
+  // Update ledger balance once (Total amount = amount * accounts.length)
+  if (txTemplate.ledgerId) {
+    const totalAmount = txTemplate.amount * accountIds.length;
+    const { data: lData } = await supabase.from('ledgers').select('balance').eq('id', txTemplate.ledgerId).single();
+    if (lData) {
+      let balance = lData.balance;
+      if (txTemplate.type === 'tahsilat') {
+        balance += totalAmount;
+      } else {
+        balance -= totalAmount;
+      }
+      await supabase.from('ledgers').update({ balance }).eq('id', txTemplate.ledgerId);
     }
   }
 }

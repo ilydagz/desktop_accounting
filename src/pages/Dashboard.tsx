@@ -5,6 +5,7 @@ import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getAccounts, getTransactions } from "@/services/db"
+import { useAuth } from "@/contexts/AuthContext"
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
@@ -14,6 +15,34 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<any[]>([])
   const [recentTransactions, setRecentTransactions] = useState<any[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all")
+  const { institutionType } = useAuth()
+
+  const getAccountsTitle = () => {
+    switch(institutionType) {
+      case 'sirket': return "Cari Hesaplar";
+      case 'koop': return "Kooperatif Üyeleri";
+      case 'apartman': return "Kat Malikleri / Sakinler";
+      case 'dernek': return "Üyeler / Bağışçılar";
+      case 'cami': return "Bağışçılar";
+      case 'bireysel': return "Kişiler / Borçlular";
+      default: return "Cari Hesaplar";
+    }
+  }
+
+  const getAccountsSingleName = () => {
+    switch(institutionType) {
+      case 'apartman': return "Sakin/Malik"
+      case 'koop': return "Üye"
+      case 'dernek': return "Üye/Bağışçı"
+      case 'bireysel': return "Kişi"
+      case 'sirket': return "Cari"
+      case 'cami': return "Bağışçı"
+      default: return "Cari"
+    }
+  }
+
+  const tSingle = getAccountsSingleName();
+  const tTitle = getAccountsTitle();
 
   useEffect(() => {
     async function loadData() {
@@ -45,11 +74,11 @@ export default function Dashboard() {
 
       if (netFark > 0) {
           statusColor = "text-green-700 bg-green-600/10 border-green-600/20"
-          statusText = `BU CARİ SİZE BORÇLU (Tahsil Edilecek: ${formatCurrency(netFark)})`
+          statusText = `BU ${tSingle.toUpperCase()} SİZE BORÇLU (Tahsil Edilecek: ${formatCurrency(netFark)})`
           StatusIcon = CheckCircle2
       } else if (netFark < 0) {
           statusColor = "text-destructive bg-destructive/10 border-destructive/20"
-          statusText = `BU CARİ SİZDEN ALACAKLI (Ödenecek: ${formatCurrency(Math.abs(netFark))})`
+          statusText = `BU ${tSingle.toUpperCase()} SİZDEN ALACAKLI (Ödenecek: ${formatCurrency(Math.abs(netFark))})`
           StatusIcon = AlertCircle
       }
   }
@@ -84,14 +113,14 @@ export default function Dashboard() {
 
           <Card className="border-2 border-primary/20 shadow-md">
             <CardHeader className="bg-primary/5 pb-4">
-              <CardTitle className="flex items-center gap-2 text-xl"><Users className="text-primary"/> 2. Cari Hesaplar</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-xl"><Users className="text-primary"/> 2. {tTitle}</CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-3">
               <p className="text-sm text-muted-foreground">
-                <strong className="text-foreground">Cari Nedir?</strong> Ticaret yaptığınız kişi veya kurumlardır (Müşteriler, Tedarikçiler, Daire Sakinleri vb.).
+                <strong className="text-foreground">{tSingle} Nedir?</strong> İşlem yaptığınız kişi veya kurumlardır.
               </p>
               <div className="p-3 bg-muted rounded-lg text-sm border">
-                <strong>Nasıl Başlarım?</strong> Sol menüden <em>Cariler</em> sayfasına gidin ve işlem yapacağınız kişileri sisteme ekleyin.
+                <strong>Nasıl Başlarım?</strong> Sol menüden ilgili sayfaya gidin ve işlem yapacağınız kişileri sisteme ekleyin.
               </div>
             </CardContent>
           </Card>
@@ -107,14 +136,14 @@ export default function Dashboard() {
                 <div className="mt-1 bg-green-100 text-green-700 p-2 rounded-full h-10 w-10 flex items-center justify-center shrink-0"><ArrowUp/></div>
                 <div>
                   <h3 className="font-bold text-green-700">Tahsilat (Alacak)</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Sizin bir cariden para almanız demektir. Bu işlem seçtiğiniz kasanıza para sokar ve o kişinin size olan borcunu azaltır.</p>
+                  <p className="text-sm text-muted-foreground mt-1">Sizin bir kişiden/kurumdan para almanız demektir. Bu işlem seçtiğiniz kasanıza para sokar ve o kişinin size olan borcunu azaltır.</p>
                 </div>
               </div>
               <div className="flex gap-4">
                 <div className="mt-1 bg-red-100 text-red-700 p-2 rounded-full h-10 w-10 flex items-center justify-center shrink-0"><ArrowDown/></div>
                 <div>
                   <h3 className="font-bold text-red-700">Ödeme (Borç)</h3>
-                  <p className="text-sm text-muted-foreground mt-1">Sizin bir cariye para vermeniz veya masraf yapmanızdır. Kasanızdan para çıkar ve o kişinin size olan borcunu artırır.</p>
+                  <p className="text-sm text-muted-foreground mt-1">Sizin bir kişiye/kuruma para vermeniz veya masraf yapmanızdır. Kasanızdan para çıkar ve o kişinin size olan borcunu artırır.</p>
                 </div>
               </div>
             </div>
@@ -132,22 +161,22 @@ export default function Dashboard() {
       
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Hızlı Bakış</h1>
-        <p className="text-muted-foreground mt-1">Cari hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
+        <p className="text-muted-foreground mt-1">{tTitle} hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
       </div>
 
       <Card className="border-2 border-primary/10 shadow-md">
         <CardHeader className="bg-muted/30 border-b pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Search className="h-5 w-5 text-primary"/> Cari Durum Sorgulama
+              <Search className="h-5 w-5 text-primary"/> {tSingle} Durum Sorgulama
             </CardTitle>
-            <CardDescription>Durumunu ve bakiyesini görmek istediğiniz cariyi seçin.</CardDescription>
+            <CardDescription>Durumunu ve bakiyesini görmek istediğiniz {tSingle.toLowerCase()}yi seçin.</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
             
             <div className="max-w-md mb-8">
                 <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
                     <SelectTrigger className="h-12 text-base font-medium">
-                        <SelectValue placeholder="Listeden Bir Cari Seçin..." />
+                        <SelectValue placeholder={`Listeden Bir ${tSingle} Seçin...`} />
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all" className="font-semibold text-muted-foreground">-- Seçim Yapılmadı --</SelectItem>
@@ -163,11 +192,11 @@ export default function Dashboard() {
                 <div className="animate-in fade-in slide-in-from-bottom-4">
                     <div className="grid gap-4 md:grid-cols-3 mb-6">
                         <div className="p-5 rounded-xl border bg-destructive/5 text-center shadow-sm">
-                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Müşterinin Borcu</span>
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tSingle}nin Borcu</span>
                             <div className="text-2xl font-bold text-destructive mt-1">{formatCurrency(selectedAccount.borc || 0)}</div>
                         </div>
                         <div className="p-5 rounded-xl border bg-green-600/5 text-center shadow-sm">
-                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Müşterinin Alacağı</span>
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tSingle}nin Alacağı</span>
                             <div className="text-2xl font-bold text-green-700 mt-1">{formatCurrency(selectedAccount.alacak || 0)}</div>
                         </div>
                         <div className="p-5 rounded-xl border bg-card shadow-sm text-center relative overflow-hidden">
@@ -213,7 +242,7 @@ export default function Dashboard() {
                                 {tx.type === 'tahsilat' ? <ArrowUp className="h-5 w-5" /> : <ArrowDown className="h-5 w-5" />}
                              </div>
                              <div className="space-y-1">
-                                <p className="text-sm font-bold leading-none">{tx.accountName || "Silinmiş Cari"}</p>
+                                <p className="text-sm font-bold leading-none">{tx.accountName || `Silinmiş ${tSingle}`}</p>
                                 <p className="text-xs text-muted-foreground font-medium">
                                     {/* SAAT GÖRÜNÜMÜ EKLENDİ */}
                                     {tx.description} • {new Date(tx.date).toLocaleDateString('tr-TR')} {new Date(tx.date).toLocaleTimeString('tr-TR', {hour: '2-digit', minute:'2-digit'})}

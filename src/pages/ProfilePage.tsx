@@ -83,7 +83,7 @@ export default function ProfilePage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Kurum ve Profil Ayarları</h1>
-        <p className="text-muted-foreground">Kişisel ve {institutionType === 'apartman' ? 'apartmanınıza' : institutionType === 'sirket' ? 'şirketinize' : 'kurumunuza'} ait bilgileri yönetin.</p>
+        <p className="text-muted-foreground">Kişisel ve {institutionType === 'apartman' ? 'apartmanınıza' : institutionType === 'sirket' ? 'şirketinize' : institutionType === 'cami' ? 'caminize' : 'kurumunuza'} ait bilgileri yönetin.</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-[1fr_2fr]">
@@ -136,7 +136,7 @@ export default function ProfilePage() {
             </div>
 
             <div className="space-y-2">
-              <Label>{institutionType === 'apartman' ? 'Apartman/Site Adı' : institutionType === 'koop' ? 'Kooperatif Adı' : institutionType === 'dernek' ? 'Dernek Adı' : institutionType === 'sirket' ? 'Şirket Ünvanı' : 'Kurum Adı'}</Label>
+              <Label>{institutionType === 'apartman' ? 'Apartman/Site Adı' : institutionType === 'koop' ? 'Kooperatif Adı' : institutionType === 'dernek' ? 'Dernek Adı' : institutionType === 'cami' ? 'Cami Adı' : institutionType === 'sirket' ? 'Şirket Ünvanı' : 'Kurum Adı'}</Label>
               <div className="relative"><Building className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={formData.institution_name} onChange={e => setFormData({...formData, institution_name: e.target.value})} className="pl-9" /></div>
             </div>
 

@@ -33,6 +33,7 @@ export function AppSidebar() {
       case 'koop': return "Kooperatif Üyeleri";
       case 'apartman': return "Kat Malikleri / Sakinler";
       case 'dernek': return "Üyeler / Bağışçılar";
+      case 'cami': return "Bağışçılar";
       case 'bireysel': return "Kişiler / Borçlular";
       default: return "Cariler";
     }

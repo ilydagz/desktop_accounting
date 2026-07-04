@@ -18,7 +18,7 @@ const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { styl
 const countries = [{ label: "Türkiye", value: "TR", code: "+90", flag: "🇹🇷" }, { label: "ABD", value: "US", code: "+1", flag: "🇺🇸" }, { label: "Almanya", value: "DE", code: "+49", flag: "🇩🇪" }]
 
 export type Account = {
-  id: string; type: "individual" | "corporate" | "owner" | "customer"; name: string; phone: string; email: string; city?: string; district?: string; tax_number?: string; tax_office?: string; land_share?: string; block_number?: string; parcel?: string; flat_count?: string; owner_id?: string | null; currency?: string; borc: number; alacak: number; bakiye: number; created_at?: string; role?: string; salary?: string; start_date?: string; customer_group?: string; maturity_days?: string; delivery_address?: string; notes?: string;
+  id: string; type: "individual" | "corporate" | "owner" | "customer"; name: string; phone: string; email: string; city?: string; district?: string; tax_number?: string; tax_office?: string; land_share?: string; block_number?: string; parcel?: string; flat_count?: string; owner_id?: string | null; currency?: string; borc: number; alacak: number; bakiye: number; created_at?: string; role?: string; salary?: string; start_date?: string; customer_group?: string; maturity_days?: string; delivery_address?: string; notes?: string; custom_code?: string;
 }
 
 export default function AccountsPage() {
@@ -41,7 +41,7 @@ export default function AccountsPage() {
       telefon: "", email: "", city: "", district: "",
       arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "", ownerId: "none",
       currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "",
-      customerGroup: "", maturityDays: "", deliveryAddress: "", notes: ""
+      customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "", customCode: ""
   })
 
   const getTerm = () => {
@@ -50,6 +50,7 @@ export default function AccountsPage() {
       case 'koop': return { title: "Kooperatif Üyeleri", sub: "Kooperatife kayıtlı üyeler ve aidat hesapları.", addBtn: "Yeni Üye Ekle", single: "Üye", list: "Üye Listesi", customTabName: "Detaylı Müşteri Profili" }
       case 'apartman': return { title: "Kat Malikleri / Sakinler", sub: "Apartman veya site sakinlerinin aidat hesapları.", addBtn: "Yeni Sakin Ekle", single: "Sakin", list: "Sakinler Listesi", customTabName: "Detaylı Müşteri Profili" }
       case 'dernek': return { title: "Üyeler / Bağışçılar", sub: "Dernek üyeleri ve bağışçı hesapları.", addBtn: "Yeni Üye Ekle", single: "Üye", list: "Üye Listesi", customTabName: "Detaylı Müşteri Profili" }
+      case 'cami': return { title: "Bağışçılar", sub: "Cami bağışçıları ve yardım hesapları.", addBtn: "Yeni Bağışçı Ekle", single: "Bağışçı", list: "Bağışçı Listesi", customTabName: "Detaylı Bağışçı Profili" }
       case 'bireysel': return { title: "Kişiler / Borçlular", sub: "Bireysel alacak ve verecek hesapları.", addBtn: "Yeni Kişi Ekle", single: "Kişi", list: "Kişi Listesi", customTabName: "Özel Müşteri Kartı" }
       default: return { title: "Cariler", sub: "Müşteri ve tedarikçi hesapları.", addBtn: "Yeni Cari Ekle", single: "Cari", list: "Cari Listesi", customTabName: "Detaylı Müşteri Profili" }
     }
@@ -63,6 +64,8 @@ export default function AccountsPage() {
 
   const [showPrintDialog, setShowPrintDialog] = useState(false);
   const [printFilter, setPrintFilter] = useState("all");
+  const [printSort, setPrintSort] = useState("name-asc");
+  const [printShowPhone, setPrintShowPhone] = useState(true);
 
   const handlePrintAccountsList = () => {
     const printWindow = document.createElement('iframe');
@@ -80,18 +83,31 @@ export default function AccountsPage() {
       visibleAccounts = visibleAccounts.filter(a => ((a.borc || 0) - (a.alacak || 0)) > 0);
     } else if (printFilter === "alacaklilar") {
       visibleAccounts = visibleAccounts.filter(a => ((a.borc || 0) - (a.alacak || 0)) < 0);
+    } else if (printFilter === "custom-code-only") {
+      visibleAccounts = visibleAccounts.filter(a => !!a.custom_code);
     }
+
+    // Sort accounts
+    visibleAccounts.sort((a, b) => {
+      if (printSort === "name-asc") return a.name.localeCompare(b.name);
+      if (printSort === "name-desc") return b.name.localeCompare(a.name);
+      
+      const codeA = parseFloat(a.custom_code || "0") || 0;
+      const codeB = parseFloat(b.custom_code || "0") || 0;
+      if (printSort === "code-asc") return codeA - codeB;
+      if (printSort === "code-desc") return codeB - codeA;
+      
+      return 0;
+    });
 
     const accountsHtml = visibleAccounts.map(acc => {
       const netFark = (acc.borc || 0) - (acc.alacak || 0);
       const durumText = netFark > 0 ? '<br/><span style="font-size:10px; color:#16a34a;">(BORÇLU)</span>' : netFark < 0 ? '<br/><span style="font-size:10px; color:#dc2626;">(ALACAKLI)</span>' : '';
-      const city = acc.city === "undefined" ? null : acc.city;
-      const district = acc.district === "undefined" ? null : acc.district;
       return `
       <tr>
+        <td>${acc.custom_code || '-'}</td>
         <td>${acc.name}</td>
-        <td>${acc.phone && acc.phone !== "undefined" ? acc.phone : '-'}</td>
-        <td>${[city, district].filter(Boolean).join(' / ') || '-'}</td>
+        ${printShowPhone ? `<td>${acc.phone && acc.phone !== "undefined" ? acc.phone : '-'}</td>` : ''}
         <td class="text-right text-red">${formatCurrency(acc.borc || 0)}</td>
         <td class="text-right text-green">${formatCurrency(acc.alacak || 0)}</td>
         <td class="text-right font-bold">${formatCurrency(acc.bakiye || 0)}</td>
@@ -123,14 +139,14 @@ export default function AccountsPage() {
         <body>
           <div class="header">
             <h1>${filterTitle}</h1>
-            <p style="margin:0; color:#666;">İşletmenize ait kayıtlı cari hesapların güncel özet tablosudur.</p>
+            <p style="margin:0; color:#666;">İşletmenize ait kayıtlı {t.title.toLowerCase()} listesinin güncel özet tablosudur.</p>
           </div>
           <table>
             <thead>
               <tr>
+                <th>Özel Kod</th>
                 <th>Ad / Ünvan</th>
-                <th>Telefon</th>
-                <th>Bölge</th>
+                ${printShowPhone ? `<th>Telefon</th>` : ''}
                 <th class="text-right">Borç</th>
                 <th class="text-right">Alacak</th>
                 <th class="text-right">Genel Bakiye</th>
@@ -138,7 +154,7 @@ export default function AccountsPage() {
               </tr>
             </thead>
             <tbody>
-              ${accountsHtml || '<tr><td colspan="7" style="text-align:center">Kayıtlı cari bulunamadı.</td></tr>'}
+              ${accountsHtml || `<tr><td colspan="${printShowPhone ? 7 : 6}" style="text-align:center">Kayıtlı ${t.single.toLowerCase()} bulunamadı.</td></tr>`}
             </tbody>
           </table>
           <div class="print-date">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</div>
@@ -191,14 +207,15 @@ export default function AccountsPage() {
           ownerId: account.owner_id || "none", currency: account.currency || "TRY",
           borc: account.borc.toString(), alacak: account.alacak.toString(), bakiye: account.bakiye.toString(),
           role: account.role === "undefined" ? "" : (account.role || ""), salary: account.salary === "undefined" ? "" : (account.salary || ""), startDate: account.start_date === "undefined" ? "" : (account.start_date || ""),
-          customerGroup: account.customer_group === "undefined" ? "" : (account.customer_group || ""), maturityDays: account.maturity_days === "undefined" ? "" : (account.maturity_days || ""), deliveryAddress: account.delivery_address === "undefined" ? "" : (account.delivery_address || ""), notes: account.notes === "undefined" ? "" : (account.notes || "")
+          customerGroup: account.customer_group === "undefined" ? "" : (account.customer_group || ""), maturityDays: account.maturity_days === "undefined" ? "" : (account.maturity_days || ""), deliveryAddress: account.delivery_address === "undefined" ? "" : (account.delivery_address || ""), notes: account.notes === "undefined" ? "" : (account.notes || ""),
+          customCode: account.custom_code === "undefined" ? "" : (account.custom_code || "")
       });
       setShowNewAccount(true);
   }
 
   const openNewAccountModal = () => {
       setEditingId(null); 
-      setFormData({ ad: "", soyad: "", unvan: "", tc: "", vkn: "", vergiDairesi: "", telefon: "", email: "", city: "", district: "", arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "", ownerId: "none", currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "", customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "" });
+      setFormData({ ad: "", soyad: "", unvan: "", tc: "", vkn: "", vergiDairesi: "", telefon: "", email: "", city: "", district: "", arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "", ownerId: "none", currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "", customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "", customCode: "" });
       setShowNewAccount(true);
   }
 
@@ -220,11 +237,12 @@ export default function AccountsPage() {
             maturity_days: accountType === 'customer' ? formData.maturityDays : null,
             delivery_address: accountType === 'customer' ? formData.deliveryAddress : null,
             notes: accountType === 'customer' ? formData.notes : null,
+            custom_code: formData.customCode || null,
             currency: formData.currency, borc: parseFloat(formData.borc) || 0, alacak: parseFloat(formData.alacak) || 0, bakiye: parseFloat(formData.bakiye) || 0
         };
 
-        if (editingId) { await updateAccount(editingId, commonData); toast({ title: "Güncellendi", description: "Cari başarıyla güncellendi." }) } 
-        else { await addAccount(commonData); toast({ title: "Başarılı", description: "Cari kart oluşturuldu." }) }
+        if (editingId) { await updateAccount(editingId, commonData); toast({ title: "Güncellendi", description: `${t.single} başarıyla güncellendi.` }) } 
+        else { await addAccount(commonData); toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` }) }
 
         await new Promise(r => setTimeout(r, 100));
         await loadAccounts(); 
@@ -233,7 +251,7 @@ export default function AccountsPage() {
     } catch (error) { toast({ title: "Hata", description: "Kaydedilemedi.", variant: "destructive" }) }
   }
 
-  const handleDeleteAccount = async (id: string) => { await deleteAccount(id); loadAccounts(); toast({ title: "Silindi", description: "Cari silindi." }) }
+  const handleDeleteAccount = async (id: string) => { await deleteAccount(id); loadAccounts(); toast({ title: "Silindi", description: `${t.single} silindi.` }) }
 
   return (
     <div className="w-full space-y-6">
@@ -247,7 +265,7 @@ export default function AccountsPage() {
 
       <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
         <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader><DialogTitle>Yazdır - Cari Hesap Listesi</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Yazdır - {t.list}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-1.5">
               <Label>Hangi listeyi yazdırmak istersiniz?</Label>
@@ -257,8 +275,27 @@ export default function AccountsPage() {
                   <SelectItem value="all">Tüm {t.title}</SelectItem>
                   <SelectItem value="borclular">Sadece Borçlular (Bize Borcu Olanlar)</SelectItem>
                   <SelectItem value="alacaklilar">Sadece Alacaklılar (Bizden Alacağı Olanlar)</SelectItem>
+                  <SelectItem value="custom-code-only">Sadece Özel Kodu Olanlar</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            
+            <div className="space-y-1.5 mt-2">
+              <Label>Sıralama Seçeneği</Label>
+              <Select value={printSort} onValueChange={setPrintSort}>
+                <SelectTrigger><SelectValue placeholder="Sıralama Seçiniz..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name-asc">Ad (A-Z)</SelectItem>
+                  <SelectItem value="name-desc">Ad (Z-A)</SelectItem>
+                  <SelectItem value="code-asc">Özel Kod (Küçükten Büyüğe)</SelectItem>
+                  <SelectItem value="code-desc">Özel Kod (Büyükten Küçüğe)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2 mt-4">
+              <input type="checkbox" id="showPhone" className="h-4 w-4" checked={printShowPhone} onChange={e => setPrintShowPhone(e.target.checked)} />
+              <Label htmlFor="showPhone" className="cursor-pointer">Telefon Numaraları Yazdırılsın</Label>
             </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setShowPrintDialog(false)}>İptal</Button><Button onClick={handlePrintAccountsList}><Printer className="h-4 w-4 mr-2" /> Yazdır</Button></DialogFooter>
@@ -278,8 +315,8 @@ export default function AccountsPage() {
           
           <div className="grid gap-5 py-2">
             <div className={`grid grid-cols-${t.customTabName ? '3' : '2'} p-1 bg-muted rounded-lg`}>
-                <button type="button" onClick={() => setAccountType('individual')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'individual' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><User className="h-4 w-4" /> Şahıs</button>
-                <button type="button" onClick={() => setAccountType('corporate')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'corporate' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><Building2 className="h-4 w-4" /> Kurum</button>
+                <button type="button" onClick={() => setAccountType('individual')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'individual' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><User className="h-4 w-4" /> {institutionType === 'cami' ? 'Bireysel Bağışçı' : 'Şahıs'}</button>
+                <button type="button" onClick={() => setAccountType('corporate')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'corporate' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><Building2 className="h-4 w-4" /> {institutionType === 'cami' ? 'Kurumsal Bağışçı' : 'Kurum'}</button>
                 {t.customTabName && (
                   <button type="button" onClick={() => setAccountType('customer')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'customer' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><Star className="h-4 w-4" /> CRM Kartı</button>
                 )}
@@ -287,6 +324,7 @@ export default function AccountsPage() {
 
             {accountType === 'individual' && (
                 <div className="grid gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="space-y-1.5"><Label>{institutionType === 'cami' ? 'Makbuz No / Özel Kod' : 'Özel Kod / Hisse No (Opsiyonel)'}</Label><Input autoComplete="off" type="number" value={formData.customCode} onChange={e => setFormData({...formData, customCode: e.target.value})} placeholder="Sayısal kod giriniz" /></div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5"><Label>Ad</Label><Input autoComplete="off" value={formData.ad} onChange={e => setFormData({...formData, ad: e.target.value})} placeholder="Ad giriniz" /></div>
                         <div className="space-y-1.5"><Label>Soyad</Label><Input autoComplete="off" value={formData.soyad} onChange={e => setFormData({...formData, soyad: e.target.value})} placeholder="Soyad giriniz" /></div>
@@ -300,7 +338,8 @@ export default function AccountsPage() {
 
             {accountType === 'corporate' && (
                 <div className="grid gap-4 animate-in fade-in slide-in-from-top-2">
-                    <div className="space-y-1.5"><Label>Ünvan (Kurum / Firma Adı)</Label><Input autoComplete="off" value={formData.unvan} onChange={e => setFormData({...formData, unvan: e.target.value})} placeholder="Örn: ABC İnşaat A.Ş." /></div>
+                    <div className="space-y-1.5"><Label>{institutionType === 'cami' ? 'Makbuz No / Özel Kod' : 'Özel Kod / Hisse No (Opsiyonel)'}</Label><Input autoComplete="off" type="number" value={formData.customCode} onChange={e => setFormData({...formData, customCode: e.target.value})} placeholder="Sayısal kod giriniz" /></div>
+                    <div className="space-y-1.5"><Label>{institutionType === 'cami' ? 'Kurum / Vakıf / Dernek Adı' : 'Ünvan (Kurum / Firma Adı)'}</Label><Input autoComplete="off" value={formData.unvan} onChange={e => setFormData({...formData, unvan: e.target.value})} placeholder={institutionType === 'cami' ? "Örn: ABC Derneği" : "Örn: ABC İnşaat A.Ş."} /></div>
                     
                     <div className="space-y-1.5 p-3 border rounded-lg bg-muted/30">
                         <Label className="text-primary font-semibold">Bağlı Olduğu Şahıs / Sahibi (Opsiyonel)</Label>
@@ -338,6 +377,7 @@ export default function AccountsPage() {
 
             {accountType === 'customer' && (
                 <div className="grid gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="space-y-1.5"><Label>Özel Kod (Opsiyonel)</Label><Input autoComplete="off" type="number" value={formData.customCode} onChange={e => setFormData({...formData, customCode: e.target.value})} placeholder="Sayısal kod giriniz" /></div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5"><Label>Müşteri Adı</Label><Input autoComplete="off" value={formData.ad} onChange={e => setFormData({...formData, ad: e.target.value})} placeholder="Ad veya Ünvan" /></div>
                         <div className="space-y-1.5"><Label>Müşteri Soyadı / Devamı</Label><Input autoComplete="off" value={formData.soyad} onChange={e => setFormData({...formData, soyad: e.target.value})} placeholder="Soyad veya Devamı" /></div>
@@ -391,7 +431,7 @@ export default function AccountsPage() {
           <DialogContent className="sm:max-w-[350px]">
               <DialogHeader><DialogTitle>Hızlı Sahip Ekle</DialogTitle></DialogHeader>
               <div className="space-y-4 py-2">
-                  <div className="space-y-1.5"><Label>Ad Soyad</Label><Input autoComplete="off" placeholder="Kişi adı" value={quickAddName} onChange={e => setQuickAddName(e.target.value)} autoFocus /></div>
+                  <div className="space-y-1.5"><Label>Ad Soyad</Label><Input autoComplete="off" placeholder="Sahip adı soyadı..." value={quickAddName} onChange={e => setQuickAddName(e.target.value)} autoFocus /></div>
                   <div className="space-y-1.5"><Label>Telefon</Label><Input autoComplete="off" placeholder="5XX XXX XX XX" value={quickAddPhone} onChange={e => setQuickAddPhone(e.target.value)} /></div>
               </div>
               <DialogFooter><Button variant="outline" onClick={() => setShowQuickAdd(false)}>İptal</Button><Button onClick={handleQuickAdd}>Ekle ve Seç</Button></DialogFooter>

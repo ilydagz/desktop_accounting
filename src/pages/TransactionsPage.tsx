@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router-dom"
-import { Plus, Search, ArrowUp, ArrowDown, Filter, MoreHorizontal, Pencil, Trash2, Wallet, TrendingUp, TrendingDown, User, Percent, Calendar, Printer } from "lucide-react"
+import { Plus, Search, ArrowUp, ArrowDown, Filter, MoreHorizontal, Pencil, Trash2, Wallet, TrendingUp, TrendingDown, User, Percent, Calendar, Printer, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
-import { getTransactions, addTransaction, getAccounts, deleteTransaction, getLedgers } from "@/services/db"
+import { getTransactions, addTransaction, getAccounts, deleteTransaction, getLedgers, updateTransactionPaidStatus, addTransactionToMultipleAccounts } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
 
 function formatCurrency(amount: number): string { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount) }
@@ -23,7 +23,7 @@ const getLocalDatetime = () => { const now = new Date(); now.setMinutes(now.getM
 
 type TransactionType = "tahsilat" | "odeme" | "faiz_isleme"
 
-interface Transaction { id: string; account_id?: string; accountId?: string; accountName: string; type: TransactionType; amount: number; description: string; date: string; method?: string; ledger_id?: string; ledgerName?: string; maturity_date?: string; interest_rate?: number; interest_type?: string; is_interest?: boolean; parent_id?: string; }
+interface Transaction { id: string; account_id?: string; accountId?: string; accountName: string; type: TransactionType; amount: number; description: string; date: string; method?: string; ledger_id?: string; ledgerName?: string; maturity_date?: string; interest_rate?: number; interest_type?: string; is_interest?: boolean; parent_id?: string; is_paid?: boolean; }
 
 export default function TransactionsPage() {
   const { toast } = useToast()
@@ -42,24 +42,38 @@ export default function TransactionsPage() {
   const [formData, setFormData] = useState({
       accountId: "", ledgerId: "none", amount: "", description: "", date: getLocalDatetime(), method: "Nakit", maturityDate: "", interestRate: "0", interestType: "aylik"
   })
+  const [searchQueryAcc, setSearchQueryAcc] = useState("")
 
   // Faiz Hesaplama State'leri
   const [interestModalOpen, setInterestModalOpen] = useState(false)
   const [selectedTxForInterest, setSelectedTxForInterest] = useState<Transaction | null>(null)
   const [interestResult, setInterestResult] = useState({ days: 0, amount: 0 })
   const [interestApplyMode, setInterestApplyMode] = useState<"genel" | "tekil">("genel")
+  const [applyToAll, setApplyToAll] = useState(false)
 
-  const getSingleTerm = () => {
-    switch (institutionType) {
-      case 'sirket': return "Cari"
+  const getAccruedInterest = (tx: Transaction) => {
+    if (!tx.maturity_date || !tx.interest_rate || tx.is_paid || tx.is_interest) return 0;
+    const today = new Date();
+    const maturity = new Date(tx.maturity_date);
+    const diffTime = today.getTime() - maturity.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return 0;
+    let dailyRate = tx.interest_type === 'yillik' ? tx.interest_rate / 365 / 100 : tx.interest_rate / 30 / 100;
+    return parseFloat((tx.amount * dailyRate * diffDays).toFixed(2));
+  }
+
+  const getAccountsSingleName = () => {
+    switch(institutionType) {
+      case 'apartman': return "Sakin/Malik"
       case 'koop': return "Üye"
-      case 'apartman': return "Sakin / Daire"
-      case 'dernek': return "Üye"
+      case 'dernek': return "Üye/Bağışçı"
       case 'bireysel': return "Kişi"
+      case 'sirket': return "Cari"
+      case 'cami': return "Bağışçı"
       default: return "Cari"
     }
   }
-  const tSingle = getSingleTerm();
+  const tSingle = getAccountsSingleName();
 
   const loadData = async () => {
       try { 
@@ -72,7 +86,7 @@ export default function TransactionsPage() {
   useEffect(() => { loadData(); }, [])
 
   const openNewTxModal = () => {
-      setEditingTxId(null); setTxType("tahsilat");
+      setEditingTxId(null); setTxType("tahsilat"); setApplyToAll(false);
       // Varsayılan kasa/banka seçimi
       const defaultLedger = ledgers.find(l => l.type === 'kasa')?.id || "none";
       setFormData({ accountId: "", ledgerId: defaultLedger, amount: "", description: "", method: "Nakit", date: getLocalDatetime(), maturityDate: "", interestRate: "0", interestType: "aylik" });
@@ -92,12 +106,26 @@ export default function TransactionsPage() {
   }
 
   const handleSave = async () => {
-      if (!formData.accountId || !formData.amount) { toast({ title: "Hata", description: "Lütfen cari ve tutar giriniz.", variant: "destructive" }); return; }
+      if (!applyToAll && !formData.accountId) { toast({ title: "Hata", description: `Lütfen ${tSingle.toLowerCase()} seçiniz.`, variant: "destructive" }); return; }
+      if (!formData.amount) { toast({ title: "Hata", description: "Lütfen tutar giriniz.", variant: "destructive" }); return; }
       try {
+          let finalAmount = parseFloat(formData.amount);
+          if (parseFloat(formData.interestRate) > 0) {
+             const principal = parseFloat(formData.amount);
+             const dailyRate = formData.interestType === 'yillik' ? parseFloat(formData.interestRate) / 365 / 100 : parseFloat(formData.interestRate) / 30 / 100;
+             if (formData.maturityDate && new Date(formData.maturityDate) < new Date()) {
+                const diffTime = new Date().getTime() - new Date(formData.maturityDate).getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                finalAmount = parseFloat((principal * dailyRate * diffDays).toFixed(2));
+             } else {
+                finalAmount = parseFloat((principal * (parseFloat(formData.interestRate) / 100)).toFixed(2));
+             }
+          }
+
           const txData = {
               accountId: formData.accountId, 
               type: txType === 'faiz_isleme' ? 'odeme' : txType, 
-              amount: parseFloat(formData.amount),
+              amount: finalAmount,
               ledgerId: formData.ledgerId === "none" ? null : formData.ledgerId,
               description: formData.description || (txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı'),
               date: formData.date, method: formData.method,
@@ -105,18 +133,30 @@ export default function TransactionsPage() {
               interest_type: formData.interestType,
               is_interest: txType === 'faiz_isleme'
           };
-          if (editingTxId) { 
-            await deleteTransaction(editingTxId);
-            await addTransaction(txData);
-            toast({ title: "Güncellendi" }) 
-          } 
-          else { await addTransaction(txData); toast({ title: "Başarılı" }) }
+
+          if (applyToAll) {
+              const activeAccIds = visibleAccounts.map(a => a.id.toString());
+              await addTransactionToMultipleAccounts(activeAccIds, txData);
+              toast({ title: "Başarılı", description: `${activeAccIds.length} hesaba başarıyla işlendi.` }) 
+          } else {
+              if (editingTxId) { 
+                await deleteTransaction(editingTxId);
+                await addTransaction(txData);
+                toast({ title: "Güncellendi" }) 
+              } 
+              else { await addTransaction(txData); toast({ title: "Başarılı" }) }
+          }
           await loadData(); setIsModalOpen(false);
       } catch (error) { toast({ title: "Hata", variant: "destructive" }) }
   }
 
+  const handleMarkAsPaid = async (txId: string) => {
+      try { await updateTransactionPaidStatus(txId, true); await loadData(); toast({ title: "Ödendi İşaretlendi", description: "Bu işlem için artık faiz hesaplanmayacak." }) }
+      catch (error) { toast({ title: "Hata", variant: "destructive" }) }
+  }
+
   const handleDelete = async (txId: string) => {
-      if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Cari bakiye onarılacaktır)")) {
+      if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Bakiye onarılacaktır)")) {
           try { await deleteTransaction(txId); await loadData(); toast({ title: "Silindi" }) } 
           catch (error) { toast({ title: "Hata", variant: "destructive" }) }
       }
@@ -183,7 +223,7 @@ export default function TransactionsPage() {
       return `
       <tr>
         <td>${formatDateTime(tx.date).split(' ')[0]}</td>
-        <td>${tx.accountName || "Silinmiş Cari"}</td>
+        <td>${tx.accountName || `Silinmiş ${tSingle}`}</td>
         <td>${tx.ledgerName || tx.method || 'Yok'}</td>
         <td>${typeStr}</td>
         <td class="text-right" style="color: ${amountColor}; font-weight: bold;">${amountStr}</td>
@@ -282,7 +322,7 @@ export default function TransactionsPage() {
                   description: `Faiz/Gecikme Zammı (${interestResult.days} gün) - Ref: ${selectedTxForInterest.description}`,
                   date: getLocalDatetime(),
                   method: "Nakit", // or none
-                  ledgerId: null, // Bakiye yansımayacak kasa bazında, sadece cari borçlandırılacak
+                  ledgerId: null, // Bakiye yansımayacak kasa bazında, sadece borçlandırılacak
                   // @ts-ignore
                   is_interest: true,
                   parent_id: interestApplyMode === "tekil" ? selectedTxForInterest.id : undefined
@@ -299,8 +339,8 @@ export default function TransactionsPage() {
   return (
     <div className="w-full space-y-6">
       <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold tracking-tight">Kasa ve Hareketler</h1><p className="text-muted-foreground mt-1">İşletme geneli veya kişiye özel finansal işlemleri yönetin.</p></div><Button className="gap-2" onClick={openNewTxModal}><Plus className="h-4 w-4" /> Yeni İşlem Ekle</Button></div>
-      <div className="flex items-center justify-between bg-muted/30 p-4 rounded-lg border border-dashed"><h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><User className="h-4 w-4" /> Özet Görünümü:</h3><Select value={selectedAccountId} onValueChange={setSelectedAccountId}><SelectTrigger className="w-[300px] bg-background"><SelectValue placeholder="Görünüm Seçin..." /></SelectTrigger><SelectContent><SelectItem value="all" className="font-bold text-primary">-- Tümü (Genel Kasa) --</SelectItem>{visibleAccounts.map(acc => (<SelectItem key={acc.id} value={acc.id.toString()}>{acc.name}</SelectItem>))}</SelectContent></Select></div>
-      <div className="grid gap-4 md:grid-cols-3"><Card className="bg-destructive/5 border-destructive/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-destructive"><TrendingDown className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasadan Alacak (Borçlar)" : "Müşterinin Borcu"}</h3></div><div className="text-3xl font-bold text-destructive">{formatCurrency(displayBorc)}</div></CardContent></Card><Card className="bg-green-600/5 border-green-600/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-green-700"><TrendingUp className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasaya Borç (Alacaklar)" : "Müşterinin Alacağı"}</h3></div><div className="text-3xl font-bold text-green-700">{formatCurrency(displayAlacak)}</div></CardContent></Card><Card className="bg-primary/5 border-primary/20 shadow-sm transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-primary"><Wallet className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Genel Net Bakiye" : "Kişisel Net Bakiye"}</h3></div><div className={`text-3xl font-bold ${displayBakiye >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(displayBakiye)}</div></CardContent></Card></div>
+      <div className="flex items-center justify-between bg-muted/30 p-4 rounded-lg border border-dashed"><h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><User className="h-4 w-4" /> Özet Görünümü:</h3><Select value={selectedAccountId} onValueChange={setSelectedAccountId}><SelectTrigger className="w-[300px] bg-background"><SelectValue placeholder="Görünüm Seçin..." /></SelectTrigger><SelectContent><SelectItem value="all" className="font-bold text-primary">-- Tümü (Genel Kasa) --</SelectItem>{visibleAccounts.map(acc => (<SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>))}</SelectContent></Select></div>
+      <div className="grid gap-4 md:grid-cols-3"><Card className="bg-destructive/5 border-destructive/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-destructive"><TrendingDown className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasadan Alacak (Borçlar)" : "Müşterinin Borcu"}</h3></div><div className="text-3xl font-bold text-destructive">{formatCurrency(displayBorc)}</div></CardContent></Card><Card className="bg-green-600/5 border-green-600/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-green-700"><TrendingUp className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasaya Borç (Alacaklar)" : "Müşterinin Alacağı"}</h3></div><div className="text-3xl font-bold text-green-700">{formatCurrency(displayAlacak)}</div></CardContent></Card><Card className="bg-primary/5 border-primary/20 shadow-sm transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-primary"><Wallet className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Genel Net Bakiye" : "Kişisel Net Bakiye"}</h3></div><div className={`text-3xl font-bold ${displayBakiye >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(Math.abs(displayBakiye))} <span className="text-xs font-bold">{displayBakiye > 0 ? '(ALACAKLIYIZ)' : displayBakiye < 0 ? '(BORÇLUYUZ)' : ''}</span></div></CardContent></Card></div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-[550px]">
@@ -312,7 +352,28 @@ export default function TransactionsPage() {
                 <button type="button" onClick={() => setTxType('faiz_isleme')} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border-2 transition-all ${txType === 'faiz_isleme' ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-muted hover:border-orange-200 text-muted-foreground'}`}><Percent className={`h-5 w-5 ${txType === 'faiz_isleme' ? 'text-orange-500' : ''}`} /><span className="font-semibold text-xs">Faiz (Ekle)</span></button>
               </div>
               <div className="space-y-4">
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">{tSingle} Adı</Label><Select value={formData.accountId} onValueChange={(val) => setFormData({...formData, accountId: val})} disabled={!!editingTxId}><SelectTrigger className="col-span-3"><SelectValue placeholder={`${tSingle} Seçiniz`} /></SelectTrigger><SelectContent>{visibleAccounts.map(acc => (<SelectItem key={acc.id} value={acc.id.toString()}>{acc.name}</SelectItem>))}</SelectContent></Select></div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right font-medium">{tSingle} Adı</Label>
+                    <div className="col-span-3 space-y-2">
+                      <Select value={formData.accountId} onValueChange={(val) => setFormData({...formData, accountId: val})} disabled={!!editingTxId || applyToAll}>
+                        <SelectTrigger><SelectValue placeholder={`${tSingle} Seçiniz`} /></SelectTrigger>
+                        <SelectContent>
+                          <div className="px-2 pb-2 pt-2 sticky top-0 bg-popover z-10">
+                            <Input placeholder="Ara..." value={searchQueryAcc} onChange={e => setSearchQueryAcc(e.target.value)} onKeyDown={e => e.stopPropagation()} className="h-8" />
+                          </div>
+                          {visibleAccounts.filter(a => a.name.toLowerCase().includes(searchQueryAcc.toLowerCase()) || (a.custom_code && a.custom_code.includes(searchQueryAcc))).map(acc => (
+                            <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!editingTxId && (
+                        <div className="flex items-center gap-2 mt-2 p-2 border rounded-md bg-muted/30">
+                          <input type="checkbox" id="applyAll" checked={applyToAll} onChange={e => { setApplyToAll(e.target.checked); if(e.target.checked) setFormData({...formData, accountId: ""}); }} className="h-4 w-4" />
+                          <Label htmlFor="applyAll" className="text-sm font-semibold text-primary cursor-pointer">Tüm {tSingle}lere Uygula (Toplu İşlem)</Label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Yöntem</Label>
                       <Select value={formData.method} onValueChange={handleMethodChange}>
                           <SelectTrigger className="col-span-3"><SelectValue placeholder="Seçiniz"/></SelectTrigger>
@@ -347,8 +408,13 @@ export default function TransactionsPage() {
                       )}
                   </div>
 
-                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Tutar</Label><div className="col-span-3 relative"><Input type="number" className="pl-8" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value})} /><span className="absolute left-3 top-2.5 text-muted-foreground text-sm">₺</span></div></div>
+                  <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">{txType === 'faiz_isleme' ? 'Ana Para Tutarı' : 'Tutar'}</Label><div className="col-span-3 relative"><Input type="number" className="pl-8" value={formData.amount} onChange={(e) => setFormData({...formData, amount: e.target.value})} /><span className="absolute left-3 top-2.5 text-muted-foreground text-sm">₺</span></div></div>
                   
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right font-medium text-xs">İşlem Tarihi / Saati</Label>
+                    <div className="col-span-3 flex items-center relative"><Calendar className="absolute left-2 h-4 w-4 text-muted-foreground" /><Input type="datetime-local" className="pl-8" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} /></div>
+                  </div>
+
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right font-medium text-xs">Vade Tarihi</Label>
                     <div className="col-span-3 flex items-center relative"><Calendar className="absolute left-2 h-4 w-4 text-muted-foreground" /><Input type="date" className="pl-8" value={formData.maturityDate} onChange={(e) => setFormData({...formData, maturityDate: e.target.value})} /></div>
@@ -364,6 +430,26 @@ export default function TransactionsPage() {
                         </Select>
                     </div>
                   </div>
+                  
+                  {formData.amount && formData.interestRate !== "0" && (
+                    <div className="col-span-4 bg-orange-50 border border-orange-200 text-orange-700 p-3 rounded-md text-sm flex justify-between items-center">
+                      <span>Anlık Hesaplanan Gecikme Faizi:</span>
+                      <strong className="text-lg">{
+                        (() => {
+                          const principal = parseFloat(formData.amount);
+                          if (formData.maturityDate && new Date(formData.maturityDate) < new Date()) {
+                              const today = new Date(); const maturity = new Date(formData.maturityDate);
+                              const diffTime = today.getTime() - maturity.getTime();
+                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                              const dailyRate = formData.interestType === 'yillik' ? parseFloat(formData.interestRate) / 365 / 100 : parseFloat(formData.interestRate) / 30 / 100;
+                              return formatCurrency(parseFloat((principal * dailyRate * diffDays).toFixed(2)));
+                          } else {
+                              return formatCurrency(parseFloat((principal * (parseFloat(formData.interestRate) / 100)).toFixed(2)));
+                          }
+                        })()
+                      }</strong>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Açıklama</Label><Input className="col-span-3" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} /></div>
               </div>
@@ -430,23 +516,34 @@ export default function TransactionsPage() {
                 {filteredTransactions.length === 0 ? (<TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">İşlem bulunamadı.</TableCell></TableRow>) : (filteredTransactions.map((tx) => (
                     <TableRow key={tx.id} className="border-border group">
                       <TableCell className="text-muted-foreground font-medium text-xs">{formatDateTime(tx.date).split(' ')[0]}</TableCell>
-                      <TableCell><Link to={`/accounts?id=${tx.account_id || tx.accountId}`} className="font-medium text-foreground hover:text-primary hover:underline">{tx.accountName || "Silinmiş Cari"}</Link></TableCell>
+                      <TableCell><Link to={`/accounts?id=${tx.account_id || tx.accountId}`} className="font-medium text-foreground hover:text-primary hover:underline">{tx.accountName || `Silinmiş ${tSingle}`}</Link></TableCell>
                       <TableCell><Badge variant="secondary" className="font-normal">{tx.ledgerName || tx.method || 'Yok'}</Badge></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{tx.maturity_date ? new Date(tx.maturity_date).toLocaleDateString('tr-TR') : '-'}</TableCell>
                       <TableCell><Badge variant="outline" className={cn("gap-1 pr-2", tx.type === "tahsilat" ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-destructive border-red-200")}>{tx.type === "tahsilat" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}{tx.type === "tahsilat" ? "Tahsilat" : "Ödeme"}</Badge></TableCell>
                       <TableCell className={cn("text-right font-bold text-base", tx.type === "tahsilat" ? "text-green-600" : "text-destructive")}>{tx.type === "tahsilat" ? "+" : "-"}{formatCurrency(tx.amount)}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm flex items-center gap-2">
-                        {tx.is_interest && <Percent className="h-3 w-3 text-orange-500" />}
-                        {tx.description} 
-                        {tx.interest_rate && tx.interest_rate > 0 ? <span className="text-xs text-orange-500 bg-orange-50 px-1 py-0.5 rounded border border-orange-200">(%{tx.interest_rate} {tx.interest_type})</span> : null}
+                      <TableCell className="text-muted-foreground text-sm flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          {tx.is_interest && <Percent className="h-3 w-3 text-orange-500" />}
+                          {tx.description} 
+                          {tx.interest_rate && tx.interest_rate > 0 ? <span className="text-xs text-orange-500 bg-orange-50 px-1 py-0.5 rounded border border-orange-200">(%{tx.interest_rate} {tx.interest_type})</span> : null}
+                          {tx.type === 'odeme' && tx.is_paid && <Badge variant="outline" className="text-[10px] h-4 border-green-600 text-green-600 px-1 py-0">ÖDENDİ</Badge>}
+                        </div>
+                        {getAccruedInterest(tx) > 0 && (
+                          <div className="text-[11px] font-bold text-orange-600 bg-orange-50 w-fit px-1.5 py-0.5 rounded border border-orange-200">
+                            (+{formatCurrency(getAccruedInterest(tx))} faiz birikti)
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {tx.maturity_date && tx.interest_rate && tx.interest_rate > 0 && !tx.is_interest && !tx.is_paid && (
+                              <DropdownMenuItem onSelect={() => handleMarkAsPaid(tx.id)} className="text-green-600 font-medium"><ShieldCheck className="mr-2 h-4 w-4" /> Ödendi İşaretle</DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onSelect={() => openEditTxModal(tx)}><Pencil className="mr-2 h-4 w-4" /> Düzenle</DropdownMenuItem>
-                            {tx.maturity_date && tx.interest_rate && tx.interest_rate > 0 && !tx.is_interest && (
-                                <DropdownMenuItem onSelect={() => calculateInterest(tx)} className="text-orange-600 font-medium"><Percent className="mr-2 h-4 w-4" /> Faiz Hesapla</DropdownMenuItem>
+                            {tx.maturity_date && tx.interest_rate && tx.interest_rate > 0 && !tx.is_interest && !tx.is_paid && (
+                                <DropdownMenuItem onSelect={() => calculateInterest(tx)} className="text-orange-600 font-medium"><Percent className="mr-2 h-4 w-4" /> Faiz Tahakkuk Ettir</DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive" onSelect={() => handleDelete(tx.id)}><Trash2 className="mr-2 h-4 w-4" /> Sil</DropdownMenuItem>

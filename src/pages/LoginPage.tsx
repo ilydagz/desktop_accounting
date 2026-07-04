@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { GalleryVerticalEnd, Sun, Moon, Briefcase, Users, Building, Heart, User } from "lucide-react"
+import { GalleryVerticalEnd, Sun, Moon, Briefcase, Users, Building, Heart, User, Landmark, Eye, EyeOff } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   
   // Görünüm State'i: ilk olarak tip seçimi, sonra auth (giriş/kayıt)
   const [viewMode, setViewMode] = useState<"type-selection" | "auth">("type-selection")
@@ -160,7 +161,8 @@ export default function LoginPage() {
                   { id: 'koop', label: 'Kooperatif', icon: Users },
                   { id: 'apartman', label: 'Apartman', icon: Building },
                   { id: 'dernek', label: 'Dernek', icon: Heart },
-                  { id: 'bireysel', label: 'Bireysel', icon: User }
+                  { id: 'bireysel', label: 'Bireysel', icon: User },
+                  { id: 'cami', label: 'Cami', icon: Landmark }
                 ].map(type => (
                   <button 
                     key={type.id} 
@@ -202,7 +204,12 @@ export default function LoginPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="password" className="text-base font-medium">Şifre</Label>
-                        <Input id="password" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} required className="h-12 text-base" />
+                        <div className="relative">
+                          <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e)=>setPassword(e.target.value)} required className="h-12 text-base pr-10" />
+                          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </button>
+                        </div>
                       </div>
                       <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={isLoading}>
                         {isLoading ? "İşleniyor..." : "Giriş Yap"}
@@ -229,8 +236,8 @@ export default function LoginPage() {
                     </div>
                     {institutionType !== 'bireysel' && (
                       <div className="space-y-2">
-                        <Label>{institutionType === 'apartman' ? 'Apartman/Site Adı' : institutionType === 'koop' ? 'Kooperatif Adı' : institutionType === 'dernek' ? 'Dernek Adı' : 'Şirket Ünvanı'}</Label>
-                        <Input value={institutionName} onChange={(e)=>setInstitutionName(e.target.value)} required placeholder={institutionType === 'apartman' ? "Örn: Güneş Sitesi" : ""} />
+                        <Label>{institutionType === 'apartman' ? 'Apartman/Site Adı' : institutionType === 'koop' ? 'Kooperatif Adı' : institutionType === 'dernek' ? 'Dernek Adı' : institutionType === 'cami' ? 'Cami Adı' : 'Şirket Ünvanı'}</Label>
+                        <Input value={institutionName} onChange={(e)=>setInstitutionName(e.target.value)} required placeholder={institutionType === 'apartman' ? "Örn: Güneş Sitesi" : institutionType === 'cami' ? "Örn: Merkez Camii" : ""} />
                       </div>
                     )}
                   </div>
@@ -266,7 +273,12 @@ export default function LoginPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Şifre</Label>
-                    <Input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} required />
+                    <div className="relative">
+                      <Input type={showPassword ? "text" : "password"} value={password} onChange={(e)=>setPassword(e.target.value)} required className="pr-10" />
+                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full h-12 mt-2 font-semibold" disabled={isLoading}>
                     {isLoading ? "Oluşturuluyor..." : "Kayıt Ol"}
