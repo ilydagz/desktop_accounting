@@ -52,25 +52,33 @@ jobs:
         run: |
           VERSION="${{ steps.tauri.outputs.appVersion }}"
           TAG="v$VERSION"
-          echo "Downloading latest.json from current release..."
           
-          # Wait a few seconds to ensure the release is fully propagated by tauri-action
-          sleep 5
-          gh release download "$TAG" -p "latest.json"
+          echo "Preparing to deploy assets to public repository..."
+          mkdir -p release-assets
+          cd release-assets
           
-          # Change download URL in latest.json to point to the public repo
-          sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' latest.json
-          cat latest.json
+          # Wait for tauri-action to finish attaching assets to the private release
+          sleep 10
+          
+          echo "Downloading all assets from private release $TAG..."
+          gh release download "$TAG"
+          
+          echo "Modifying latest.json to point to public repo..."
+          if [ -f "latest.json" ]; then
+            sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' latest.json
+            cat latest.json
+          else
+            echo "WARNING: latest.json not found! Auto-updater might not work."
+          fi
           
           echo "Publishing to ilydagz/limes-v2-releases..."
-          cd src-tauri/target/release/bundle
           
-          # Create release in public repository and upload assets
+          # Delete the release in public repo if it already exists (to prevent creation failure)
+          GH_TOKEN=$PUBLIC_TOKEN gh release delete "$TAG" --repo ilydagz/limes-v2-releases --cleanup-tag -y || true
+          
+          # Create release in public repository and upload all downloaded assets
           GH_TOKEN=$PUBLIC_TOKEN gh release create "$TAG" \
-            msi/*.msi \
-            msi/*.msi.zip \
-            msi/*.msi.zip.sig \
-            ../../../../latest.json \
+            * \
             --repo ilydagz/limes-v2-releases \
             --title "Limes Muhasebe $TAG" \
             --notes "Masaüstü güncel sürümü yayınlandı."
