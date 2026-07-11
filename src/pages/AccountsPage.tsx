@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Printer, Plus, User, Building2, ChevronDown, ChevronUp, Check, ChevronsUpDown, UserPlus, Star } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AccountsTable } from "@/components/accounts-table"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
-import { getAccounts, addAccount, deleteAccount, updateAccount } from "@/services/db"
+import { addAccount, deleteAccount, updateAccount } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
+import { useData } from "@/contexts/DataContext"
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 const countries = [{ label: "Türkiye", value: "TR", code: "+90", flag: "🇹🇷" }, { label: "ABD", value: "US", code: "+1", flag: "🇺🇸" }, { label: "Almanya", value: "DE", code: "+49", flag: "🇩🇪" }]
@@ -24,7 +25,7 @@ export type Account = {
 export default function AccountsPage() {
   const { toast } = useToast()
   const { institutionType } = useAuth()
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const { accounts, setAccounts, refreshData } = useData()
   const [showNewAccount, setShowNewAccount] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [accountType, setAccountType] = useState<"individual" | "corporate" | "customer">("individual")
@@ -56,11 +57,6 @@ export default function AccountsPage() {
     }
   }
   const t = getTerm();
-
-  const loadAccounts = async () => {
-    try { const data = await getAccounts(); setAccounts(data as Account[]); } catch (error) { console.error(error) }
-  }
-  useEffect(() => { loadAccounts() }, [])
 
   const [showPrintDialog, setShowPrintDialog] = useState(false);
   const [printFilter, setPrintFilter] = useState("all");
@@ -178,15 +174,19 @@ export default function AccountsPage() {
   const handleQuickAdd = async () => {
       if (!quickAddName.trim()) { toast({ title: "Hata", description: "Ad Soyad gerekli.", variant: "destructive" }); return; }
       try {
-          await addAccount({ type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 });
-          await new Promise(r => setTimeout(r, 100)); 
-          const updatedAccounts = await getAccounts();
-          setAccounts(updatedAccounts as Account[]);
-          const newAcc = updatedAccounts[0]; 
-          if (newAcc) setFormData({ ...formData, ownerId: newAcc.id.toString() });
+          const tempId = "temp-" + Date.now();
+          const newOwner = { id: tempId, type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 };
+          setAccounts(prev => [newOwner, ...prev]);
+          setFormData({ ...formData, ownerId: tempId });
           setShowQuickAdd(false); setQuickAddName(""); setQuickAddPhone("");
           toast({ title: "Başarılı", description: "Sahip eklendi." });
-      } catch(e) { toast({ title: "Hata", description: "Eklenemedi", variant: "destructive" }); }
+          
+          await addAccount({ type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 });
+          await refreshData();
+      } catch(e) { 
+          refreshData();
+          toast({ title: "Hata", description: "Eklenemedi", variant: "destructive" }); 
+      }
   }
 
   const handleEdit = (account: Account) => {
@@ -241,17 +241,38 @@ export default function AccountsPage() {
             currency: formData.currency, borc: parseFloat(formData.borc) || 0, alacak: parseFloat(formData.alacak) || 0, bakiye: parseFloat(formData.bakiye) || 0
         };
 
-        if (editingId) { await updateAccount(editingId, commonData); toast({ title: "Güncellendi", description: `${t.single} başarıyla güncellendi.` }) } 
-        else { await addAccount(commonData); toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` }) }
+        if (editingId) { 
+            setAccounts(prev => prev.map(a => a.id === editingId ? { ...a, ...commonData } : a));
+            setShowNewAccount(false); setEditingId(null);
+            toast({ title: "Güncellendi", description: `${t.single} başarıyla güncellendi.` });
+            await updateAccount(editingId, commonData); 
+        } 
+        else { 
+            const tempId = "temp-" + Date.now();
+            setAccounts(prev => [{ id: tempId, ...commonData }, ...prev]);
+            setShowNewAccount(false); setEditingId(null);
+            toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` });
+            await addAccount(commonData); 
+        }
 
-        await new Promise(r => setTimeout(r, 100));
-        await loadAccounts(); 
-        
-        setShowNewAccount(false); setEditingId(null);
-    } catch (error) { toast({ title: "Hata", description: "Kaydedilemedi.", variant: "destructive" }) }
+        refreshData(); 
+    } catch (error) { 
+        refreshData();
+        toast({ title: "Hata", description: "İşlem sırasında bir hata oluştu.", variant: "destructive" });
+    }
   }
 
-  const handleDeleteAccount = async (id: string) => { await deleteAccount(id); loadAccounts(); toast({ title: "Silindi", description: `${t.single} silindi.` }) }
+  const handleDeleteAccount = async (id: string) => { 
+      try {
+          setAccounts(prev => prev.filter(a => a.id !== id));
+          toast({ title: "Silindi", description: `${t.single} silindi.` });
+          await deleteAccount(id); 
+          refreshData(); 
+      } catch (e) {
+          refreshData();
+          toast({ title: "Hata", description: "Silinemedi", variant: "destructive" });
+      }
+  }
 
   return (
     <div className="w-full space-y-6">
@@ -305,7 +326,7 @@ export default function AccountsPage() {
       <Card>
         <CardHeader className="pb-3"><CardTitle>Hesap Listesi</CardTitle></CardHeader>
         <CardContent>
-            <AccountsTable data={mainTableAccounts} fullData={accounts} onDelete={handleDeleteAccount} onEdit={handleEdit} onRefresh={loadAccounts} />
+            <AccountsTable data={mainTableAccounts} fullData={accounts} onDelete={handleDeleteAccount} onEdit={handleEdit} onRefresh={refreshData} />
         </CardContent>
       </Card>
 

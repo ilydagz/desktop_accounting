@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { Plus, Search, ArrowUp, ArrowDown, Filter, MoreHorizontal, Pencil, Trash2, Wallet, TrendingUp, TrendingDown, User, Percent, Calendar, Printer, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
-import { getTransactions, addTransaction, getAccounts, deleteTransaction, getLedgers, updateTransactionPaidStatus, addTransactionToMultipleAccounts } from "@/services/db"
+import { addTransaction, deleteTransaction, updateTransactionPaidStatus, addTransactionToMultipleAccounts } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
+import { useData } from "@/contexts/DataContext"
 
 function formatCurrency(amount: number): string { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount) }
 function formatDateTime(dateString: string): string { const d = new Date(dateString); return d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + d.toLocaleTimeString("tr-TR", { hour: '2-digit', minute: '2-digit' }); }
@@ -28,9 +29,7 @@ interface Transaction { id: string; account_id?: string; accountId?: string; acc
 export default function TransactionsPage() {
   const { toast } = useToast()
   const { institutionType } = useAuth()
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [accounts, setAccounts] = useState<any[]>([]) 
-  const [ledgers, setLedgers] = useState<any[]>([])
+  const { transactions, setTransactions, accounts, ledgers, refreshData } = useData()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<"all" | "tahsilat" | "odeme">("all")
@@ -75,15 +74,7 @@ export default function TransactionsPage() {
   }
   const tSingle = getAccountsSingleName();
 
-  const loadData = async () => {
-      try { 
-        const txData = await getTransactions(); setTransactions(txData); 
-        const accData = await getAccounts(); setAccounts(accData); 
-        const ledData = await getLedgers(); setLedgers(ledData);
-      } 
-      catch (error) { console.error(error); }
-  }
-  useEffect(() => { loadData(); }, [])
+  const loadData = refreshData;
 
   const openNewTxModal = () => {
       setEditingTxId(null); setTxType("tahsilat"); setApplyToAll(false);
@@ -136,17 +127,31 @@ export default function TransactionsPage() {
 
           if (applyToAll) {
               const activeAccIds = visibleAccounts.map(a => a.id.toString());
-              await addTransactionToMultipleAccounts(activeAccIds, txData);
+              setIsModalOpen(false);
               toast({ title: "Başarılı", description: `${activeAccIds.length} hesaba başarıyla işlendi.` }) 
+              await addTransactionToMultipleAccounts(activeAccIds, txData);
+              refreshData();
           } else {
+              const accountName = accounts.find(a => a.id.toString() === txData.accountId)?.name || "";
+              const ledgerName = ledgers.find(l => l.id.toString() === txData.ledgerId)?.name || "";
+              const tempTx: any = { id: "temp-" + Date.now(), ...txData, accountName, ledgerName };
+              
               if (editingTxId) { 
+                setTransactions(prev => prev.map(t => t.id === editingTxId ? { ...t, ...tempTx, id: editingTxId } : t));
+                setIsModalOpen(false);
+                toast({ title: "Güncellendi" }) 
                 await deleteTransaction(editingTxId);
                 await addTransaction(txData);
-                toast({ title: "Güncellendi" }) 
+                refreshData();
               } 
-              else { await addTransaction(txData); toast({ title: "Başarılı" }) }
+              else { 
+                setTransactions(prev => [tempTx, ...prev]);
+                setIsModalOpen(false);
+                toast({ title: "Başarılı" }) 
+                await addTransaction(txData);
+                refreshData();
+              }
           }
-          await loadData(); setIsModalOpen(false);
       } catch (error) { toast({ title: "Hata", variant: "destructive" }) }
   }
 
@@ -157,7 +162,12 @@ export default function TransactionsPage() {
 
   const handleDelete = async (txId: string) => {
       if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Bakiye onarılacaktır)")) {
-          try { await deleteTransaction(txId); await loadData(); toast({ title: "Silindi" }) } 
+          try { 
+              setTransactions(prev => prev.filter(t => t.id !== txId));
+              toast({ title: "Silindi" });
+              await deleteTransaction(txId); 
+              refreshData(); 
+          } 
           catch (error) { toast({ title: "Hata", variant: "destructive" }) }
       }
   }
@@ -220,9 +230,11 @@ export default function TransactionsPage() {
       const amountStr = tx.type === "tahsilat" ? `+${formatCurrency(tx.amount)}` : `-${formatCurrency(tx.amount)}`;
       const amountColor = tx.type === "tahsilat" ? "#16a34a" : "#dc2626";
       const desc = tx.description + (tx.interest_rate ? ` (%${tx.interest_rate} Faiz)` : '');
+      const account = accounts.find(a => a.id.toString() === (tx.account_id || tx.accountId)?.toString());
       return `
       <tr>
         <td>${formatDateTime(tx.date).split(' ')[0]}</td>
+        <td>${account?.custom_code || '-'}</td>
         <td>${tx.accountName || `Silinmiş ${tSingle}`}</td>
         <td>${tx.ledgerName || tx.method || 'Yok'}</td>
         <td>${typeStr}</td>
@@ -257,6 +269,7 @@ export default function TransactionsPage() {
             <thead>
               <tr>
                 <th>Tarih</th>
+                <th>Özel Kod</th>
                 <th>${tSingle} Adı</th>
                 <th>Kasa/Banka</th>
                 <th>Tip</th>
@@ -265,7 +278,7 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              ${txHtml || '<tr><td colspan="6" style="text-align:center">İşlem bulunamadı.</td></tr>'}
+              ${txHtml || '<tr><td colspan="7" style="text-align:center">İşlem bulunamadı.</td></tr>'}
             </tbody>
           </table>
           <div class="summary">
@@ -511,11 +524,12 @@ export default function TransactionsPage() {
           </div>
           <div className="overflow-x-auto print:overflow-visible">
             <Table>
-              <TableHeader><TableRow className="hover:bg-transparent border-border"><TableHead className="w-32">Tarih</TableHead><TableHead>{tSingle} Adı</TableHead><TableHead>Kasa/Banka</TableHead><TableHead>Vade</TableHead><TableHead>Tip</TableHead><TableHead className="text-right">Tutar</TableHead><TableHead>Açıklama</TableHead><TableHead className="text-right w-16"></TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow className="hover:bg-transparent border-border"><TableHead className="w-32">Tarih</TableHead><TableHead className="w-24">Özel Kod</TableHead><TableHead>{tSingle} Adı</TableHead><TableHead>Kasa/Banka</TableHead><TableHead>Vade</TableHead><TableHead>Tip</TableHead><TableHead className="text-right">Tutar</TableHead><TableHead>Açıklama</TableHead><TableHead className="text-right w-16"></TableHead></TableRow></TableHeader>
               <TableBody>
-                {filteredTransactions.length === 0 ? (<TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">İşlem bulunamadı.</TableCell></TableRow>) : (filteredTransactions.map((tx) => (
+                {filteredTransactions.length === 0 ? (<TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">İşlem bulunamadı.</TableCell></TableRow>) : (filteredTransactions.map((tx) => (
                     <TableRow key={tx.id} className="border-border group">
                       <TableCell className="text-muted-foreground font-medium text-xs">{formatDateTime(tx.date).split(' ')[0]}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{accounts.find(a => a.id.toString() === (tx.account_id || tx.accountId)?.toString())?.custom_code || "-"}</TableCell>
                       <TableCell><Link to={`/accounts?id=${tx.account_id || tx.accountId}`} className="font-medium text-foreground hover:text-primary hover:underline">{tx.accountName || `Silinmiş ${tSingle}`}</Link></TableCell>
                       <TableCell><Badge variant="secondary" className="font-normal">{tx.ledgerName || tx.method || 'Yok'}</Badge></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{tx.maturity_date ? new Date(tx.maturity_date).toLocaleDateString('tr-TR') : '-'}</TableCell>
@@ -553,7 +567,7 @@ export default function TransactionsPage() {
                     </TableRow>
                   )))}
               </TableBody>
-              <TableFooter><TableRow className="hover:bg-muted/50 border-t-2 border-border"><TableCell colSpan={5} className="font-semibold text-foreground text-base">Filtrelenen İşlemlerin Özeti</TableCell><TableCell className={cn("text-right font-bold text-xl", tabloBakiyesi >= 0 ? "text-green-600" : "text-destructive")}>{formatCurrency(tabloBakiyesi)}</TableCell><TableCell colSpan={2} /></TableRow></TableFooter>
+              <TableFooter><TableRow className="hover:bg-muted/50 border-t-2 border-border"><TableCell colSpan={6} className="font-semibold text-foreground text-base">Filtrelenen İşlemlerin Özeti</TableCell><TableCell className={cn("text-right font-bold text-xl", tabloBakiyesi >= 0 ? "text-green-600" : "text-destructive")}>{formatCurrency(tabloBakiyesi)}</TableCell><TableCell colSpan={2} /></TableRow></TableFooter>
             </Table>
           </div>
         </CardContent>

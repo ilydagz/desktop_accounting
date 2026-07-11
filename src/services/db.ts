@@ -67,6 +67,25 @@ export async function addLedger(ledger: { type: 'kasa' | 'banka', name: string, 
   if (error) throw error;
 }
 
+export async function deleteLedger(id: string) {
+  if (isDemoMode) return;
+
+  // Önce bu kasaya/bankaya bağlı tüm işlemleri bul
+  const { data: transactions, error: fetchErr } = await supabase.from('transactions').select('id').eq('ledger_id', id);
+  if (fetchErr) throw fetchErr;
+
+  // Varsa tüm işlemleri güvenli şekilde sil (bakiyeleri onararak)
+  if (transactions && transactions.length > 0) {
+    for (const tx of transactions) {
+      await deleteTransaction(tx.id);
+    }
+  }
+
+  // En son kasayı/bankayı sil
+  const { error } = await supabase.from('ledgers').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // --- TRANSACTIONS (İŞLEMLER) ---
 
 export async function getTransactionsByAccount(accountId: string, startDate?: string, endDate?: string) {
@@ -165,29 +184,46 @@ export async function deleteTransaction(txId: string) {
   if (isDemoMode) return;
   
   // Önce işlemi bul
-  const { data: tx } = await supabase.from('transactions').select('*').eq('id', txId).single();
-  if (!tx) return;
+  const { data: tx, error: fetchErr } = await supabase.from('transactions').select('*').eq('id', txId).single();
+  if (fetchErr || !tx) {
+    console.error("Transaction not found or fetch error:", fetchErr);
+    throw new Error("İşlem bulunamadı.");
+  }
+
+  // Varsa alt işlemleri (faiz gibi) önce sil
+  const { data: children } = await supabase.from('transactions').select('id').eq('parent_id', txId);
+  if (children && children.length > 0) {
+    for (const child of children) {
+      await deleteTransaction(child.id);
+    }
+  }
 
   // İşlemi sil
-  await supabase.from('transactions').delete().eq('id', txId);
+  const { error: delErr } = await supabase.from('transactions').delete().eq('id', txId);
+  if (delErr) {
+    console.error("Transaction delete error:", delErr);
+    throw delErr;
+  }
 
   // Bakiyeleri geri al
-  const { data: accData } = await supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.account_id).single();
-  if (accData) {
-    let { borc, alacak, bakiye } = accData;
-    if (tx.type === 'tahsilat') {
-      alacak -= tx.amount;
-      bakiye -= tx.amount;
-    } else {
-      borc -= tx.amount;
-      bakiye += tx.amount;
+  if (tx.account_id) {
+    const { data: accData, error: accErr } = await supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.account_id).single();
+    if (accData && !accErr) {
+      let { borc, alacak, bakiye } = accData;
+      if (tx.type === 'tahsilat') {
+        alacak -= tx.amount;
+        bakiye -= tx.amount;
+      } else {
+        borc -= tx.amount;
+        bakiye += tx.amount;
+      }
+      await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', tx.account_id);
     }
-    await supabase.from('accounts').update({ borc, alacak, bakiye }).eq('id', tx.account_id);
   }
 
   if (tx.ledger_id) {
-    const { data: lData } = await supabase.from('ledgers').select('balance').eq('id', tx.ledger_id).single();
-    if (lData) {
+    const { data: lData, error: lErr } = await supabase.from('ledgers').select('balance').eq('id', tx.ledger_id).single();
+    if (lData && !lErr) {
       let balance = lData.balance;
       if (tx.type === 'tahsilat') balance -= tx.amount;
       else balance += tx.amount;
@@ -261,5 +297,73 @@ export async function addTransactionToMultipleAccounts(accountIds: string[], txT
       }
       await supabase.from('ledgers').update({ balance }).eq('id', txTemplate.ledgerId);
     }
+  }
+}
+
+export async function recalculateAllBalances() {
+  if (isDemoMode) return;
+  const institution_id = await getInstitutionId();
+
+  // 1. Get all accounts and ledgers
+  const { data: accounts } = await supabase.from('accounts').select('id, borc, alacak, bakiye').eq('institution_id', institution_id);
+  const { data: ledgers } = await supabase.from('ledgers').select('id, balance').eq('institution_id', institution_id);
+  
+  if (!accounts || !ledgers) return;
+
+  // 2. Reset everything to 0
+  for (const acc of accounts) {
+    await supabase.from('accounts').update({ borc: 0, alacak: 0, bakiye: 0 }).eq('id', acc.id);
+  }
+  for (const ledger of ledgers) {
+    await supabase.from('ledgers').update({ balance: 0 }).eq('id', ledger.id);
+  }
+
+  // 3. Process all transactions
+  const { data: transactions } = await supabase.from('transactions').select('*').eq('institution_id', institution_id);
+  if (!transactions) return;
+
+  // Track calculated balances
+  const accBalances: Record<string, { borc: number, alacak: number, bakiye: number }> = {};
+  const ledgerBalances: Record<string, number> = {};
+
+  for (const tx of transactions) {
+    // Calculate for accounts
+    if (tx.account_id) {
+      if (!accBalances[tx.account_id]) accBalances[tx.account_id] = { borc: 0, alacak: 0, bakiye: 0 };
+      
+      if (tx.type === 'tahsilat') {
+        accBalances[tx.account_id].alacak += tx.amount;
+        accBalances[tx.account_id].bakiye += tx.amount;
+      } else {
+        accBalances[tx.account_id].borc += tx.amount;
+        accBalances[tx.account_id].bakiye -= tx.amount;
+      }
+    }
+
+    // Calculate for ledgers
+    if (tx.ledger_id) {
+      if (!ledgerBalances[tx.ledger_id]) ledgerBalances[tx.ledger_id] = 0;
+      
+      if (tx.type === 'tahsilat') {
+        ledgerBalances[tx.ledger_id] += tx.amount;
+      } else {
+        ledgerBalances[tx.ledger_id] -= tx.amount;
+      }
+    }
+  }
+
+  // 4. Update the DB with calculated balances
+  for (const accId in accBalances) {
+    await supabase.from('accounts').update({ 
+      borc: accBalances[accId].borc, 
+      alacak: accBalances[accId].alacak, 
+      bakiye: accBalances[accId].bakiye 
+    }).eq('id', accId);
+  }
+
+  for (const ledgerId in ledgerBalances) {
+    await supabase.from('ledgers').update({ 
+      balance: ledgerBalances[ledgerId] 
+    }).eq('id', ledgerId);
   }
 }

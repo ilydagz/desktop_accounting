@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Building2, Wallet, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -8,14 +8,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { getLedgers, addLedger } from "@/services/db"
-import { supabase } from "@/lib/supabase"
+import { addLedger } from "@/services/db"
+// removed unused import
+import { useData } from "@/contexts/DataContext"
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 
 export default function LedgersPage() {
   const { toast } = useToast()
-  const [ledgers, setLedgers] = useState<any[]>([])
+  const { ledgers, setLedgers, refreshData } = useData()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -25,46 +26,42 @@ export default function LedgersPage() {
     currency: "TRY"
   })
 
-  const loadData = async () => {
-    try {
-      const data = await getLedgers()
-      setLedgers(data)
-    } catch (e) {
-      console.error(e)
-    }
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [])
-
   const handleSave = async () => {
     if (!formData.name) {
       toast({ title: "Hata", description: "Lütfen bir isim giriniz", variant: "destructive" })
       return
     }
-    setLoading(true)
+    
     try {
-      await addLedger({ type: formData.type, name: formData.name, currency: formData.currency })
-      toast({ title: "Başarılı", description: "Kasa/Banka eklendi." })
+      setLoading(true)
+      const tempId = "temp-" + Date.now();
+      const newLedger = { id: tempId, type: formData.type, name: formData.name, currency: formData.currency, balance: 0 };
+      setLedgers(prev => [newLedger, ...prev]);
+      
       setIsModalOpen(false)
-      loadData()
       setFormData({ type: "kasa", name: "", currency: "TRY" })
+      toast({ title: "Başarılı", description: "Kasa/Banka eklendi." })
+
+      await addLedger({ type: formData.type, name: formData.name, currency: formData.currency })
+      refreshData()
     } catch (e: any) {
+      refreshData()
       toast({ title: "Hata", description: e.message, variant: "destructive" })
-    } finally {
-      setLoading(false)
     }
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Bu hesabı silmek istediğinize emin misiniz? (Bağlı işlemler etkilenebilir)")) {
+    if (confirm("Bu hesabı silmek istediğinize emin misiniz? DİKKAT: Bu hesaba bağlı olan tüm işlemler silinecek ve ilgili kişilerin bakiyelerinden geri düşülecektir!")) {
       try {
-        await supabase.from('ledgers').delete().eq('id', id)
-        toast({ title: "Silindi" })
-        loadData()
+        setLedgers(prev => prev.filter(l => l.id !== id));
+        toast({ title: "Başarıyla Silindi", description: "Banka ve bağlı işlemler silindi." })
+        
+        const { deleteLedger } = await import("@/services/db");
+        await deleteLedger(id);
+        refreshData()
       } catch (e: any) {
-        toast({ title: "Hata", description: "Silinemedi.", variant: "destructive" })
+        refreshData()
+        toast({ title: "Hata", description: "Silinemedi: " + e.message, variant: "destructive" })
       }
     }
   }

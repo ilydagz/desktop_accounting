@@ -1,19 +1,21 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2, Users, ArrowRightLeft } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getAccounts, getTransactions } from "@/services/db"
+import { Button } from "@/components/ui/button"
+// removed unused import
 import { useAuth } from "@/contexts/AuthContext"
+import { useData } from "@/contexts/DataContext"
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 }
 
 export default function Dashboard() {
-  const [accounts, setAccounts] = useState<any[]>([])
-  const [recentTransactions, setRecentTransactions] = useState<any[]>([])
+  const { accounts, transactions } = useData()
+  const recentTransactions = transactions.slice(0, 10)
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all")
   const { institutionType } = useAuth()
 
@@ -44,20 +46,7 @@ export default function Dashboard() {
   const tSingle = getAccountsSingleName();
   const tTitle = getAccountsTitle();
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const accData = await getAccounts()
-        setAccounts(accData)
-
-        const txData = await getTransactions()
-        setRecentTransactions(txData.slice(0, 10)) 
-      } catch (error) {
-        console.error("Veriler yüklenemedi:", error)
-      }
-    }
-    loadData()
-  }, [])
+  // useEffect loadData removed because DataContext handles it
 
   const selectedAccount = accounts.find(a => a.id.toString() === selectedAccountId)
 
@@ -159,9 +148,30 @@ export default function Dashboard() {
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
       
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Hızlı Bakış</h1>
-        <p className="text-muted-foreground mt-1">{tTitle} hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Hızlı Bakış</h1>
+          <p className="text-muted-foreground mt-1">{tTitle} hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="text-orange-600 border-orange-200 bg-orange-50 hover:bg-orange-100"
+          onClick={async () => {
+            if (window.confirm("DİKKAT: Bu işlem tüm hesap ve kasa bakiyelerini mevcut işlemlere göre baştan hesaplayacaktır. Geçmişteki silme hatalarından kaynaklı bozuk bakiyeleri (ekside kalan hesapları vs.) onarmak içindir. Onaylıyor musunuz?")) {
+              try {
+                const { recalculateAllBalances } = await import("@/services/db");
+                await recalculateAllBalances();
+                alert("Bakiyeler başarıyla onarıldı! Sayfa yenileniyor...");
+                window.location.reload();
+              } catch (error: any) {
+                alert("Hata oluştu: " + error.message);
+              }
+            }
+          }}
+        >
+          <AlertCircle className="h-4 w-4 mr-2" /> Bozuk Bakiyeleri Onar
+        </Button>
       </div>
 
       <Card className="border-2 border-primary/10 shadow-md">

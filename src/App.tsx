@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { DataProvider } from "@/contexts/DataContext";
 
 // --- SAYFALAR (Import yollarına dikkat) ---
 import LoginPage from "@/pages/LoginPage";
@@ -39,25 +40,27 @@ function Layout({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <Router>
-      <AutoUpdater />
-      <Routes>
-        {/* Login Sayfası (Layout dışındadır) */}
-        <Route path="/" element={<LoginPage />} />
-        
-        {/* Diğer Sayfalar (Layout içindedir) */}
-        <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
-        <Route path="/accounts" element={<Layout><AccountsPage /></Layout>} />
-        <Route path="/transactions" element={<Layout><TransactionsPage /></Layout>} />
-        <Route path="/ledgers" element={<Layout><LedgersPage /></Layout>} />
-        <Route path="/bank-integration" element={<Layout><BankIntegrationPage /></Layout>} />
-        <Route path="/profile" element={<Layout><ProfilePage /></Layout>} />
-        
-        {/* Hatalı link girilirse ana sayfaya yönlendir */}
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-      <Toaster />
-    </Router>
+    <DataProvider>
+      <Router>
+        <AutoUpdater />
+        <Routes>
+          {/* Login Sayfası (Layout dışındadır) */}
+          <Route path="/" element={<LoginPage />} />
+          
+          {/* Diğer Sayfalar (Layout içindedir) */}
+          <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+          <Route path="/accounts" element={<Layout><AccountsPage /></Layout>} />
+          <Route path="/transactions" element={<Layout><TransactionsPage /></Layout>} />
+          <Route path="/ledgers" element={<Layout><LedgersPage /></Layout>} />
+          <Route path="/bank-integration" element={<Layout><BankIntegrationPage /></Layout>} />
+          <Route path="/profile" element={<Layout><ProfilePage /></Layout>} />
+          
+          {/* Hatalı link girilirse ana sayfaya yönlendir */}
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+        <Toaster />
+      </Router>
+    </DataProvider>
   );
 }
 

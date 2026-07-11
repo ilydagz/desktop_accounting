@@ -111,6 +111,9 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
          }
       }
 
+      setTransactionAccount(null); 
+      toast({ title: "Başarılı", description: "İşlem Kaydedildi" })
+
       await addTransaction({
         accountId: transactionAccount.id.toString(),
         type: txType === 'faiz_isleme' as any ? 'odeme' : txType as any,
@@ -124,7 +127,6 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         is_interest: txType === 'faiz_isleme' as any
       });
 
-      await new Promise(r => setTimeout(r, 100));
       onRefresh();
 
       if (selectedAccount && selectedAccount.id === transactionAccount.id) {
@@ -132,7 +134,6 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
         if (freshAcc) { setSelectedAccount(freshAcc); await loadAccountHistory(freshAcc); }
       }
-      setTransactionAccount(null); toast({ title: "Başarılı", description: "İşlem Kaydedildi" })
     } catch (e) { toast({ title: "Hata", variant: "destructive" }) }
   }
 
@@ -431,8 +432,40 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                                 <p className="text-sm text-muted-foreground mt-0.5">{formatDate(tx.date)}</p>
                               </div>
                             </div>
-                            <div className={`font-bold text-lg ${tx.type === 'tahsilat' ? 'text-green-600' : 'text-destructive'}`}>
-                              {tx.type === 'tahsilat' ? 'Alacak: +' : 'Borç: -'}{formatCurrency(tx.amount)}
+                            <div className="flex flex-col items-end gap-2">
+                              <div className={`font-bold text-lg ${tx.type === 'tahsilat' ? 'text-green-600' : 'text-destructive'}`}>
+                                {tx.type === 'tahsilat' ? 'Alacak: +' : 'Borç: -'}{formatCurrency(tx.amount)}
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Bakiye onarılacaktır)")) {
+                                    try {
+                                      setAccountHistory(prev => prev.filter(item => item.id !== tx.id));
+                                      toast({ title: "Silindi", description: "İşlem başarıyla silindi ve bakiyeler güncellendi." });
+                                      
+                                      const { deleteTransaction } = await import("@/services/db");
+                                      await deleteTransaction(tx.id);
+                                      
+                                      onRefresh();
+                                      if (selectedAccount) {
+                                        const { getAccounts } = await import("@/services/db");
+                                        const freshAccounts = await getAccounts();
+                                        const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
+                                        if (freshAcc) { setSelectedAccount(freshAcc); await loadAccountHistory(freshAcc); }
+                                      }
+                                    } catch (err: any) {
+                                      toast({ title: "Hata", description: err?.message || "İşlem silinirken bir hata oluştu.", variant: "destructive" });
+                                      onRefresh();
+                                    }
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" /> Sil
+                              </Button>
                             </div>
                           </div>
 
