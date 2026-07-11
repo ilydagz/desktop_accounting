@@ -42,7 +42,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/ilydagz/limes-v2-releases/releases/latest/download/latest.json"
+        "https://github.com/ilydagz/desktop_accounting/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5MEQ2NzkxRTJCMjdEOUEKUldTYWZiTGlrV2NOS2VCWERoNDNtdHllbmJoVThCaytyVnRwQUs5MU11ajRJc29CZkVQQzA5OGoK"
     }

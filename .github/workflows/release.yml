@@ -43,42 +43,4 @@ jobs:
           releaseDraft: false
           prerelease: false
 
-      - name: Deploy assets to Public Repository
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLIC_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-        shell: bash
-        run: |
-          VERSION="${{ steps.tauri.outputs.appVersion }}"
-          TAG="v$VERSION"
-          
-          echo "Preparing to deploy assets to public repository..."
-          mkdir -p release-assets
-          cd release-assets
-          
-          # Wait for tauri-action to finish attaching assets to the private release
-          sleep 10
-          
-          echo "Downloading all assets from private release $TAG..."
-          gh release download "$TAG"
-          
-          echo "Modifying latest.json to point to public repo..."
-          if [ -f "latest.json" ]; then
-            sed -i -E 's|github\.com/[^/]+/[^/]+/releases/download|github.com/ilydagz/limes-v2-releases/releases/download|g' latest.json
-            cat latest.json
-          else
-            echo "WARNING: latest.json not found! Auto-updater might not work."
-          fi
-          
-          echo "Publishing to ilydagz/limes-v2-releases..."
-          
-          # Delete the release in public repo if it already exists (to prevent creation failure)
-          GH_TOKEN=$PUBLIC_TOKEN gh release delete "$TAG" --repo ilydagz/limes-v2-releases --cleanup-tag -y || true
-          
-          # Create release in public repository and upload all downloaded assets
-          GH_TOKEN=$PUBLIC_TOKEN gh release create "$TAG" \
-            * \
-            --repo ilydagz/limes-v2-releases \
-            --title "Limes Muhasebe $TAG" \
-            --notes "Masaüstü güncel sürümü yayınlandı."
+
