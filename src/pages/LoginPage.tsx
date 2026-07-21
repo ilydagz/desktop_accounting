@@ -52,7 +52,7 @@ export default function LoginPage() {
     }
     
     // Yalnızca Tauri ortamında çalışmasını sağlamak için ufak bir kontrol
-    if (window.__TAURI_INTERNALS__) {
+    if ((window as any).__TAURI_INTERNALS__) {
         checkForUpdates()
     }
   }, [])
@@ -168,7 +168,7 @@ export default function LoginPage() {
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-muted/40 p-4">
       <div className="absolute right-4 top-4 md:right-8 md:top-8 flex items-center gap-2">
-        {viewMode === "type-selection" && window.__TAURI_INTERNALS__ && (
+        {viewMode === "type-selection" && (window as any).__TAURI_INTERNALS__ && (
           <Button 
             variant={updateAvailable ? "default" : "outline"} 
             size="sm" 
