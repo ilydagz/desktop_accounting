@@ -1,10 +1,9 @@
-"use client"
-
 import { useState } from "react"
 import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2, Users, ArrowRightLeft } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 // removed unused import
 import { useAuth } from "@/contexts/AuthContext"
 import { useData } from "@/contexts/DataContext"
@@ -17,6 +16,7 @@ export default function Dashboard() {
   const { accounts, transactions } = useData()
   const recentTransactions = transactions.slice(0, 10)
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all")
+  const [searchQueryAcc, setSearchQueryAcc] = useState("")
   const { institutionType } = useAuth()
 
   const getAccountsTitle = () => {
@@ -153,25 +153,27 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Hızlı Bakış</h1>
           <p className="text-muted-foreground mt-1">{tTitle} hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="text-orange-600 border-orange-200 bg-orange-50 hover:bg-orange-100"
-          onClick={async () => {
-            if (window.confirm("DİKKAT: Bu işlem tüm hesap ve kasa bakiyelerini mevcut işlemlere göre baştan hesaplayacaktır. Geçmişteki silme hatalarından kaynaklı bozuk bakiyeleri (ekside kalan hesapları vs.) onarmak içindir. Onaylıyor musunuz?")) {
-              try {
-                const { recalculateAllBalances } = await import("@/services/db");
-                await recalculateAllBalances();
-                alert("Bakiyeler başarıyla onarıldı! Sayfa yenileniyor...");
-                window.location.reload();
-              } catch (error: any) {
-                alert("Hata oluştu: " + error.message);
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="text-orange-600 border-orange-200 bg-orange-50 hover:bg-orange-100"
+            onClick={async () => {
+              if (window.confirm("DİKKAT: Bu işlem tüm hesap ve kasa bakiyelerini mevcut işlemlere göre baştan hesaplayacaktır. Geçmişteki silme hatalarından kaynaklı bozuk bakiyeleri (ekside kalan hesapları vs.) onarmak içindir. Onaylıyor musunuz?")) {
+                try {
+                  const { recalculateAllBalances } = await import("@/services/db");
+                  await recalculateAllBalances();
+                  alert("Bakiyeler başarıyla onarıldı! Sayfa yenileniyor...");
+                  window.location.reload();
+                } catch (error: any) {
+                  alert("Hata oluştu: " + error.message);
+                }
               }
-            }
-          }}
-        >
-          <AlertCircle className="h-4 w-4 mr-2" /> Bozuk Bakiyeleri Onar
-        </Button>
+            }}
+          >
+            <AlertCircle className="h-4 w-4 mr-2" /> Bozuk Bakiyeleri Onar
+          </Button>
+        </div>
       </div>
 
       <Card className="border-2 border-primary/10 shadow-md">
@@ -189,10 +191,19 @@ export default function Dashboard() {
                         <SelectValue placeholder={`Listeden Bir ${tSingle} Seçin...`} />
                     </SelectTrigger>
                     <SelectContent>
+                        <div className="px-2 pb-2 pt-2 sticky top-0 bg-popover z-10">
+                            <Input placeholder="Ara..." value={searchQueryAcc} onChange={e => setSearchQueryAcc(e.target.value)} onKeyDown={e => e.stopPropagation()} className="h-8" />
+                        </div>
                         <SelectItem value="all" className="font-semibold text-muted-foreground">-- Seçim Yapılmadı --</SelectItem>
                         {/* GÖRÜNÜR CARİLERİ MAPLİYORUZ */}
-                        {visibleAccounts.map(acc => (
-                            <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name}</SelectItem>
+                        {visibleAccounts.filter(a => {
+                            if (!searchQueryAcc) return true;
+                            const q = searchQueryAcc.toLocaleLowerCase('tr-TR');
+                            const nameMatch = a.name.toLocaleLowerCase('tr-TR').startsWith(q);
+                            const codeMatch = a.custom_code ? a.custom_code.toLocaleLowerCase('tr-TR').startsWith(q) : false;
+                            return nameMatch || codeMatch;
+                        }).map(acc => (
+                            <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>

@@ -42,6 +42,10 @@ export default function TransactionsPage() {
       accountId: "", ledgerId: "none", amount: "", description: "", date: getLocalDatetime(), method: "Nakit", maturityDate: "", interestRate: "0", interestType: "aylik"
   })
   const [searchQueryAcc, setSearchQueryAcc] = useState("")
+  const [searchQueryViewAcc, setSearchQueryViewAcc] = useState("")
+
+  const [filterStartDate, setFilterStartDate] = useState("")
+  const [filterEndDate, setFilterEndDate] = useState("")
 
   // Faiz Hesaplama State'leri
   const [interestModalOpen, setInterestModalOpen] = useState(false)
@@ -188,16 +192,22 @@ export default function TransactionsPage() {
     let result = transactions;
     if (selectedAccountId !== "all") { result = result.filter((tx) => (tx.account_id || tx.accountId)?.toString() === selectedAccountId); }
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter((tx) => (tx.accountName && tx.accountName.toLowerCase().includes(query)) || (tx.description && tx.description.toLowerCase().includes(query)))
+      const q = searchQuery.toLocaleLowerCase('tr-TR');
+      result = result.filter((tx) => (tx.accountName && tx.accountName.toLocaleLowerCase('tr-TR').startsWith(q)) || (tx.description && tx.description.toLocaleLowerCase('tr-TR').startsWith(q)))
     }
     if (filterType !== "all") { result = result.filter((tx) => tx.type === filterType) }
     if (filterLedger !== "all") {
        if (filterLedger === "nakit") result = result.filter(tx => ledgers.find(l => l.id === tx.ledger_id)?.type === 'kasa' || tx.method === 'Nakit');
        else if (filterLedger === "banka") result = result.filter(tx => ledgers.find(l => l.id === tx.ledger_id)?.type === 'banka' || tx.method === 'Havale/EFT');
     }
+    if (filterStartDate) {
+       result = result.filter(tx => tx.date && tx.date.slice(0,10) >= filterStartDate);
+    }
+    if (filterEndDate) {
+       result = result.filter(tx => tx.date && tx.date.slice(0,10) <= filterEndDate);
+    }
     return result;
-  }, [transactions, searchQuery, filterType, filterLedger, selectedAccountId, ledgers])
+  }, [transactions, searchQuery, filterType, filterLedger, selectedAccountId, ledgers, filterStartDate, filterEndDate])
 
   const selectedAccountDetails = accounts.find(a => a.id.toString() === selectedAccountId);
   const visibleAccounts = accounts.filter(acc => acc.type !== "owner");
@@ -352,7 +362,19 @@ export default function TransactionsPage() {
   return (
     <div className="w-full space-y-6">
       <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold tracking-tight">Kasa ve Hareketler</h1><p className="text-muted-foreground mt-1">İşletme geneli veya kişiye özel finansal işlemleri yönetin.</p></div><Button className="gap-2" onClick={openNewTxModal}><Plus className="h-4 w-4" /> Yeni İşlem Ekle</Button></div>
-      <div className="flex items-center justify-between bg-muted/30 p-4 rounded-lg border border-dashed"><h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><User className="h-4 w-4" /> Özet Görünümü:</h3><Select value={selectedAccountId} onValueChange={setSelectedAccountId}><SelectTrigger className="w-[300px] bg-background"><SelectValue placeholder="Görünüm Seçin..." /></SelectTrigger><SelectContent><SelectItem value="all" className="font-bold text-primary">-- Tümü (Genel Kasa) --</SelectItem>{visibleAccounts.map(acc => (<SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>))}</SelectContent></Select></div>
+      <div className="flex items-center justify-between bg-muted/30 p-4 rounded-lg border border-dashed"><h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2"><User className="h-4 w-4" /> Özet Görünümü:</h3><Select value={selectedAccountId} onValueChange={setSelectedAccountId}><SelectTrigger className="w-[300px] bg-background"><SelectValue placeholder="Görünüm Seçin..." /></SelectTrigger><SelectContent>
+        <div className="px-2 pb-2 pt-2 sticky top-0 bg-popover z-10">
+          <Input placeholder="Ara..." value={searchQueryViewAcc} onChange={e => setSearchQueryViewAcc(e.target.value)} onKeyDown={e => e.stopPropagation()} className="h-8" />
+        </div>
+        <SelectItem value="all" className="font-bold text-primary">-- Tümü (Genel Kasa) --</SelectItem>
+        {visibleAccounts.filter(a => {
+            if (!searchQueryViewAcc) return true;
+            const q = searchQueryViewAcc.toLocaleLowerCase('tr-TR');
+            const nameMatch = a.name.toLocaleLowerCase('tr-TR').startsWith(q);
+            const codeMatch = a.custom_code ? a.custom_code.toLocaleLowerCase('tr-TR').startsWith(q) : false;
+            return nameMatch || codeMatch;
+        }).map(acc => (<SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>))}
+      </SelectContent></Select></div>
       <div className="grid gap-4 md:grid-cols-3"><Card className="bg-destructive/5 border-destructive/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-destructive"><TrendingDown className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasadan Alacak (Borçlar)" : "Müşterinin Borcu"}</h3></div><div className="text-3xl font-bold text-destructive">{formatCurrency(displayBorc)}</div></CardContent></Card><Card className="bg-green-600/5 border-green-600/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-green-700"><TrendingUp className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasaya Borç (Alacaklar)" : "Müşterinin Alacağı"}</h3></div><div className="text-3xl font-bold text-green-700">{formatCurrency(displayAlacak)}</div></CardContent></Card><Card className="bg-primary/5 border-primary/20 shadow-sm transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-primary"><Wallet className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Genel Net Bakiye" : "Kişisel Net Bakiye"}</h3></div><div className={`text-3xl font-bold ${displayBakiye >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(Math.abs(displayBakiye))} <span className="text-xs font-bold">{displayBakiye > 0 ? '(ALACAKLIYIZ)' : displayBakiye < 0 ? '(BORÇLUYUZ)' : ''}</span></div></CardContent></Card></div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
@@ -374,7 +396,13 @@ export default function TransactionsPage() {
                           <div className="px-2 pb-2 pt-2 sticky top-0 bg-popover z-10">
                             <Input placeholder="Ara..." value={searchQueryAcc} onChange={e => setSearchQueryAcc(e.target.value)} onKeyDown={e => e.stopPropagation()} className="h-8" />
                           </div>
-                          {visibleAccounts.filter(a => a.name.toLowerCase().includes(searchQueryAcc.toLowerCase()) || (a.custom_code && a.custom_code.includes(searchQueryAcc))).map(acc => (
+                          {visibleAccounts.filter(a => {
+                            if (!searchQueryAcc) return true;
+                            const q = searchQueryAcc.toLocaleLowerCase('tr-TR');
+                            const nameMatch = a.name.toLocaleLowerCase('tr-TR').startsWith(q);
+                            const codeMatch = a.custom_code ? a.custom_code.toLocaleLowerCase('tr-TR').startsWith(q) : false;
+                            return nameMatch || codeMatch;
+                          }).map(acc => (
                             <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name} {acc.custom_code ? `(${acc.custom_code})` : ''}</SelectItem>
                           ))}
                         </SelectContent>
@@ -505,6 +533,12 @@ export default function TransactionsPage() {
           <div className="p-4 border-b border-border flex gap-2 flex-wrap items-center">
             <div className="relative flex-1 min-w-[200px] max-w-sm"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input type="text" placeholder={`Açıklama veya ${tSingle.toLowerCase()} ara...`} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" /></div>
             
+            <div className="flex items-center gap-1">
+              <Input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="w-[130px] text-xs h-9" />
+              <span className="text-muted-foreground">-</span>
+              <Input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="w-[130px] text-xs h-9" />
+            </div>
+
             <Select value={filterLedger} onValueChange={setFilterLedger}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Kasa/Banka Filtresi" />

@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { GalleryVerticalEnd, Sun, Moon, Briefcase, Users, Building, Heart, User, Landmark, Eye, EyeOff } from "lucide-react"
+import { GalleryVerticalEnd, Sun, Moon, Briefcase, Users, Building, Heart, User, Landmark, Eye, EyeOff, DownloadCloud } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { ArrowLeft } from "lucide-react"
+import { check, Update } from "@tauri-apps/plugin-updater"
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -34,6 +35,40 @@ export default function LoginPage() {
   const [taxOffice, setTaxOffice] = useState("")
   const [taxNumber, setTaxNumber] = useState("")
   const [buildingUnits, setBuildingUnits] = useState("")
+
+  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null)
+  const [isUpdating, setIsUpdating] = useState(false)
+
+  useEffect(() => {
+    async function checkForUpdates() {
+      try {
+        const update = await check()
+        if (update) {
+          setUpdateAvailable(update)
+        }
+      } catch (error) {
+        console.error("Güncelleme kontrol hatası:", error)
+      }
+    }
+    
+    // Yalnızca Tauri ortamında çalışmasını sağlamak için ufak bir kontrol
+    if (window.__TAURI_INTERNALS__) {
+        checkForUpdates()
+    }
+  }, [])
+
+  const handleUpdate = async () => {
+    if (!updateAvailable) return;
+    try {
+      setIsUpdating(true);
+      await updateAvailable.downloadAndInstall();
+      alert("Güncelleme başarıyla yüklendi. Uygulamayı yeniden başlatın.");
+    } catch (e: any) {
+      alert("Güncelleme sırasında hata oluştu: " + e.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,7 +167,19 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-muted/40 p-4">
-      <div className="absolute right-4 top-4 md:right-8 md:top-8">
+      <div className="absolute right-4 top-4 md:right-8 md:top-8 flex items-center gap-2">
+        {viewMode === "type-selection" && window.__TAURI_INTERNALS__ && (
+          <Button 
+            variant={updateAvailable ? "default" : "outline"} 
+            size="sm" 
+            className={updateAvailable ? "bg-blue-600 hover:bg-blue-700 text-white" : "text-muted-foreground hidden sm:flex"}
+            disabled={!updateAvailable || isUpdating}
+            onClick={handleUpdate}
+          >
+            <DownloadCloud className="h-4 w-4 mr-2" /> 
+            {isUpdating ? 'Yükleniyor...' : (updateAvailable ? 'Güncellemek için tıklayın' : 'Uygulama Güncel')}
+          </Button>
+        )}
         <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full">
           <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />

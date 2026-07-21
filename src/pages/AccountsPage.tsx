@@ -111,6 +111,12 @@ export default function AccountsPage() {
       </tr>
     `}).join('');
 
+    const totalBorc = visibleAccounts.reduce((sum, acc) => sum + (acc.borc || 0), 0);
+    const totalAlacak = visibleAccounts.reduce((sum, acc) => sum + (acc.alacak || 0), 0);
+    const totalBakiye = visibleAccounts.reduce((sum, acc) => sum + (acc.bakiye || 0), 0);
+    const totalNetFark = totalBorc - totalAlacak;
+    const totalDurumText = totalNetFark > 0 ? '<br/><span style="font-size:10px; color:#16a34a;">(BORÇLU)</span>' : totalNetFark < 0 ? '<br/><span style="font-size:10px; color:#dc2626;">(ALACAKLI)</span>' : '';
+
     const filterTitle = printFilter === "borclular" ? `Borçlu ${t.title}` : printFilter === "alacaklilar" ? `Alacaklı ${t.title}` : t.list;
 
     doc.write(`
@@ -135,7 +141,7 @@ export default function AccountsPage() {
         <body>
           <div class="header">
             <h1>${filterTitle}</h1>
-            <p style="margin:0; color:#666;">İşletmenize ait kayıtlı {t.title.toLowerCase()} listesinin güncel özet tablosudur.</p>
+            <p style="margin:0; color:#666;">İşletmenize ait kayıtlı ${t.title.toLowerCase()} listesinin güncel özet tablosudur.</p>
           </div>
           <table>
             <thead>
@@ -152,6 +158,15 @@ export default function AccountsPage() {
             <tbody>
               ${accountsHtml || `<tr><td colspan="${printShowPhone ? 7 : 6}" style="text-align:center">Kayıtlı ${t.single.toLowerCase()} bulunamadı.</td></tr>`}
             </tbody>
+            <tfoot>
+              <tr style="background-color: #f1f5f9; font-weight: bold;">
+                <td colspan="${printShowPhone ? 3 : 2}" class="text-right">TOPLAM</td>
+                <td class="text-right text-red">${formatCurrency(totalBorc)}</td>
+                <td class="text-right text-green">${formatCurrency(totalAlacak)}</td>
+                <td class="text-right">${formatCurrency(totalBakiye)}</td>
+                <td class="text-right">${formatCurrency(Math.abs(totalNetFark))} ${totalDurumText}</td>
+              </tr>
+            </tfoot>
           </table>
           <div class="print-date">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</div>
         </body>
