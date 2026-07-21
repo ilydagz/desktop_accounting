@@ -1,79 +1,79 @@
-# Limes Muhasebe
+# Limes Muhasebe / Limes Accounting 🍋
 
-Modern, bulut tabanlı (Supabase) ve yüksek performanslı bir masaüstü muhasebe ve yönetim uygulamasıdır. Şirketler, kooperatifler, apartman/site yönetimleri, dernekler, camiler ve bireysel kullanıcılar için özel olarak tasarlanmıştır.
+*[Türkçe (Turkish) sürüm için aşağı kaydırın / Scroll down for Turkish version](#türkçe-tr)*
 
-Tauri v2 altyapısı sayesinde yerel bir masaüstü uygulaması performansında çalışırken, verileriniz Supabase aracılığıyla güvenli bir şekilde bulutta tutulur.
+## English (EN)
+Limes Accounting is a modern, high-performance, and cloud-backed desktop accounting application built for small-to-medium businesses (SMBs), property managers (apartments/cooperatives), associations, and freelancers. 
 
-## ✨ Öne Çıkan Özellikler
+By leveraging **Tauri v2**, Limes runs as a lightweight native desktop application, while keeping all relational data securely synced in the cloud via **Supabase**.
 
-### 🏢 Çoklu Kurum Desteği
-Uygulama girişinde seçilen kurum tipine göre (Şirket, Kooperatif, Apartman, Dernek, Bireysel, Cami) dinamik olarak şekillenen arayüz ve özellikler:
-* **Şirketler:** Vergi dairesi, vergi numarası takibi.
-* **Kooperatifler & Apartmanlar:** Daire/üye sayısı takibi, aidat yönetimi.
-* **Dernekler & Camiler:** Bağış ve aidat toplama yönetimi.
+### 🏗 Architecture & Tech Stack
+* **Desktop Core:** [Tauri v2](https://tauri.app/) (Rust) – Handles OS-level integrations, auto-updates, and native window management.
+* **Frontend:** [React 19](https://react.dev/) + TypeScript + [Vite](https://vitejs.dev/) – Fast, modern web framework.
+* **UI/UX Design:** [Tailwind CSS](https://tailwindcss.com/) + [Shadcn/UI](https://ui.shadcn.com/) – Accessible, clean, and premium components.
+* **Backend & Database:** [Supabase](https://supabase.com/) – Provides PostgreSQL database, Realtime features, and Row Level Security (Auth).
+* **CI/CD Workflow:** GitHub Actions – Automatically builds `.exe` and `.msi` installers and manages releases via Git Tags.
 
-### 👥 Detaylı Üye / Cari Yönetimi
-* Üyelerin veya carilerin detaylı bilgilerini (TC/VKN, Adres, İletişim) kayıt altına alma.
-* Kişiye özel genel bakiye, borç ve alacak durumlarının gerçek zamanlı takibi.
-* Pratik arama ve filtreleme ("İle Başlayan" mantığında akıllı arama) ve kolay listeleme.
+### 📁 Folder Structure
+If you are new to the project, here is a quick overview of the repository:
+- `src/` – The entire React frontend application.
+  - `components/` – Reusable UI elements (mostly Shadcn components) and complex layout pieces (like tables, sidebars).
+  - `pages/` – Top-level React components representing application routes (e.g., Dashboard, Accounts, Transactions).
+  - `contexts/` – Global state management (AuthContext, ThemeContext, DataContext).
+  - `lib/` – Utility functions and the `supabase.ts` client initialization.
+- `src-tauri/` – The Rust backend and Tauri configuration.
+  - `tauri.conf.json` – The brain of the Tauri app (permissions, window size, auto-update config, build scripts).
+  - `src/main.rs` – The Rust entry point.
+- `.github/workflows/` – Contains `release.yml` for automated cloud building and deployment upon pushing a new tag.
 
-### 💰 Kasa ve Hareketler (İşlem Takibi)
-* Gelişmiş özet görünümü sayesinde tek tıkla kurum geneli veya seçili üyeye ait hesap dökümü.
-* Tarih, işlem türü (Tahsilat/Ödeme), ödeme yöntemi (Nakit/Banka/Kredi Kartı vb.) bazlı filtrelemeler.
-* Tahsilat, Ödeme, Borçlandırma ve Alacaklandırma fişleri oluşturma.
-* Her bir işlem için detaylı açıklama, makbuz numarası ve vade tarihi ekleme.
-
-### 🏦 Banka Entegrasyonu (Geliştirme Aşamasında)
-* Açık Bankacılık (Open Banking) API'leri ile banka hareketlerinin anlık aktarımı.
-* IBAN yönetimi ve sanal POS entegrasyon altyapısı.
-
-### 🔄 Otomatik Güncelleme (Auto-Update)
-* Tauri Updater sayesinde Github Releases üzerinden uygulamadan çıkmadan tek tıkla yeni sürüme geçiş.
-
----
-
-## 🛠 Kullanılan Teknolojiler
-
-* **Çekirdek (Masaüstü):** [Tauri v2](https://tauri.app/) (Rust + Webview)
-* **Frontend:** [React 19](https://react.dev/) + TypeScript + [Vite](https://vitejs.dev/)
-* **Backend & Veritabanı:** [Supabase](https://supabase.com/) (PostgreSQL + Auth)
-* **Tasarım Sistemi:** [Tailwind CSS](https://tailwindcss.com/) + [Shadcn/ui](https://ui.shadcn.com/)
-* **İkonlar:** [Lucide React](https://lucide.dev/)
-* **Yönlendirme:** React Router v7
-* **CI/CD:** Github Actions (Otomatik Windows .exe, .msi derleme ve yayınlama)
+### 🚀 Getting Started (Development)
+1. **Prerequisites:** Node.js (v20+) and [Rust](https://www.rust-lang.org/tools/install).
+2. **Environment Setup:** Create a `.env` file in the root directory:
+   ```env
+   VITE_SUPABASE_URL=https://your-project-url.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   ```
+3. **Install Dependencies & Run:**
+   ```bash
+   npm install
+   npm run tauri dev
+   ```
 
 ---
 
-## 📦 Kurulum ve Geliştirme
+## Türkçe (TR)
+Limes Muhasebe; KOBİ'ler, apartman/site yönetimleri, kooperatifler, dernekler ve bireysel çalışanlar için geliştirilmiş modern ve yüksek performanslı bir masaüstü muhasebe uygulamasıdır.
 
-Projeyi yerel ortamınızda çalıştırmak ve geliştirmek için:
+**Tauri v2** sayesinde işletim sisteminde hafif ve hızlı çalışan yerel bir uygulama deneyimi sunarken, verilerinizi **Supabase** aracılığıyla güvenli bir şekilde bulutta tutar.
 
-### 1. Gereksinimler
-* [Node.js](https://nodejs.org/) (v20 veya daha güncel)
-* [Rust](https://www.rust-lang.org/tools/install) (Tauri derlemesi için zorunlu)
-* C++ Build Tools (Windows için Visual Studio üzerinden)
-* Supabase hesabı ve projesi (Veritabanı URL ve Anon Key)
+### 🏗 Mimari ve Teknolojiler
+* **Çekirdek (Masaüstü):** [Tauri v2](https://tauri.app/) (Rust) – İşletim sistemi entegrasyonu, otomatik güncelleme (auto-update) ve pencere yönetimi.
+* **Önyüz (Frontend):** [React 19](https://react.dev/) + TypeScript + [Vite](https://vitejs.dev/).
+* **Tasarım Sistemi:** [Tailwind CSS](https://tailwindcss.com/) + [Shadcn/UI](https://ui.shadcn.com/) – Şık, erişilebilir ve modern bileşenler.
+* **Arkayüz (Backend) & Veritabanı:** [Supabase](https://supabase.com/) – PostgreSQL, yetkilendirme (Auth) ve bulut depolama.
+* **CI/CD İş Akışı:** GitHub Actions – Yeni bir sürüm etiketi (tag) atıldığında otomatik olarak Windows kurulum (.exe/.msi) dosyalarını derler ve yayınlar.
 
-### 2. Çevre Değişkenleri (Environment Variables)
-Proje ana dizininde `.env` isimli bir dosya oluşturup Supabase bilgilerinizi ekleyin:
-```env
-VITE_SUPABASE_URL=https://your-project-url.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
+### 📁 Proje Klasör Yapısı
+Projeyi ilk kez inceleyecek geliştiriciler için özet yapı:
+- `src/` – React önyüz (frontend) uygulamasının tamamı buradadır.
+  - `components/` – Tekrar kullanılabilir UI bileşenleri (genellikle Shadcn) ve özel tablolar, menüler.
+  - `pages/` – Uygulamanın sayfaları (Örn: Gösterge Paneli, Üyeler, Kasa Hareketleri).
+  - `contexts/` – Küresel durum yönetimi (Yetki, Tema ve Veri bağlamları).
+  - `lib/` – Yardımcı fonksiyonlar ve `supabase.ts` bağlantı ayarları.
+- `src-tauri/` – Rust arkayüzü ve masaüstü (Tauri) konfigürasyonu.
+  - `tauri.conf.json` – Uygulama ayarları (İzinler, pencere boyutu, otomatik güncelleme rotası).
+  - `src/main.rs` – Rust başlangıç dosyası.
+- `.github/workflows/` – Otomatik derleme ve yayınlama (Release) işlemlerini yöneten `release.yml` dosyası.
 
-### 3. Bağımlılıkların Yüklenmesi
-```bash
-npm install
-```
-
-### 4. Geliştirme Ortamında Başlatma
-```bash
-npm run tauri dev
-```
-
-### 5. Yeni Sürüm Derleme (Build & Release)
-Github Actions altyapısı, `v*` formatındaki (örneğin `v0.1.4`) etiketleri (tag) algılayarak otomatik olarak derler.
-```bash
-git tag v0.1.4
-git push origin v0.1.4
-```
+### 🚀 Geliştirme Ortamı Kurulumu
+1. **Gereksinimler:** Node.js (v20+) ve [Rust](https://www.rust-lang.org/tools/install).
+2. **Çevre Değişkenleri:** Ana dizinde `.env` dosyası oluşturun:
+   ```env
+   VITE_SUPABASE_URL=https://your-project-url.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   ```
+3. **Bağımlılıkları Yükleme ve Başlatma:**
+   ```bash
+   npm install
+   npm run tauri dev
+   ```
