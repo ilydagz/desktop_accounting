@@ -1,67 +1,79 @@
-# Desktop Accounting
-# Modern Accounting Manager
+# Limes Muhasebe
 
-A high-performance, secure, and offline-first desktop accounting application designed for small businesses, freelancers, and building/apartment management.
+Modern, bulut tabanlı (Supabase) ve yüksek performanslı bir masaüstü muhasebe ve yönetim uygulamasıdır. Şirketler, kooperatifler, apartman/site yönetimleri, dernekler, camiler ve bireysel kullanıcılar için özel olarak tasarlanmıştır.
 
-Built with the power of **Tauri v2**, it ensures a small footprint and native performance, keeping all your financial data stored locally on your device using **SQLite**.
+Tauri v2 altyapısı sayesinde yerel bir masaüstü uygulaması performansında çalışırken, verileriniz Supabase aracılığıyla güvenli bir şekilde bulutta tutulur.
 
-## ✨ Key Features
+## ✨ Öne Çıkan Özellikler
 
-### 👥 Advanced Account Management
-* **Individual & Corporate Support:**
-    * **Individual:** Track by Name, Surname, and National ID (TC).
-    * **Corporate:** Track by Company Title, Tax ID (VKN), and Tax Office.
-* **Detailed Contact Info:** Country-coded phone input, Email, City, and District tracking.
-* **Property & Building Details:** Specialized fields for property managers (Land Share, Block No, Parcel, Flat Count).
-* **Smart Interactions:**
-    * One-click **Copy Phone Number**.
-    * **Edit** existing account details easily.
-    * **Delete** accounts with safety checks.
-* **Powerful Filtering:** * Instant search by Name or Phone.
-    * **Filter Menu:** View only Individuals, only Corporates, or All.
+### 🏢 Çoklu Kurum Desteği
+Uygulama girişinde seçilen kurum tipine göre (Şirket, Kooperatif, Apartman, Dernek, Bireysel, Cami) dinamik olarak şekillenen arayüz ve özellikler:
+* **Şirketler:** Vergi dairesi, vergi numarası takibi.
+* **Kooperatifler & Apartmanlar:** Daire/üye sayısı takibi, aidat yönetimi.
+* **Dernekler & Camiler:** Bağış ve aidat toplama yönetimi.
 
-### 💰 Financial Tracking & Transactions
-* **Real-time Balances:** Automatically calculates Total Debt, Total Credit, and Net Balance for each account.
-* **Transaction Logging:** Record Collections (Inflow) and Payments (Outflow) with date and time precision.
-* **History View:** View the last 10 transactions directly within the account detail panel.
-* **Dashboard:** A visual overview of your financial health (Total Receivables vs. Payables).
+### 👥 Detaylı Üye / Cari Yönetimi
+* Üyelerin veya carilerin detaylı bilgilerini (TC/VKN, Adres, İletişim) kayıt altına alma.
+* Kişiye özel genel bakiye, borç ve alacak durumlarının gerçek zamanlı takibi.
+* Pratik arama ve filtreleme ("İle Başlayan" mantığında akıllı arama) ve kolay listeleme.
 
-### 🛠 Technical Highlights
-* **Local Database:** Data is stored securely in a local `SQLite` database. No cloud dependencies.
-* **Modern UI:** Clean, responsive interface built with **Shadcn/UI** and **Tailwind CSS**.
-* **Dark/Light Mode:** System-adaptive theming.
+### 💰 Kasa ve Hareketler (İşlem Takibi)
+* Gelişmiş özet görünümü sayesinde tek tıkla kurum geneli veya seçili üyeye ait hesap dökümü.
+* Tarih, işlem türü (Tahsilat/Ödeme), ödeme yöntemi (Nakit/Banka/Kredi Kartı vb.) bazlı filtrelemeler.
+* Tahsilat, Ödeme, Borçlandırma ve Alacaklandırma fişleri oluşturma.
+* Her bir işlem için detaylı açıklama, makbuz numarası ve vade tarihi ekleme.
 
----
+### 🏦 Banka Entegrasyonu (Geliştirme Aşamasında)
+* Açık Bankacılık (Open Banking) API'leri ile banka hareketlerinin anlık aktarımı.
+* IBAN yönetimi ve sanal POS entegrasyon altyapısı.
 
-## 🚀 Tech Stack
-
-This project is built using the latest web and desktop technologies:
-
-* **Core:** [Tauri v2](https://tauri.app/) (Rust + Webview)
-* **Frontend:** [React](https://react.dev/) + TypeScript
-* **Styling:** [Tailwind CSS](https://tailwindcss.com/)
-* **Components:** [Shadcn/ui](https://ui.shadcn.com/)
-* **Icons:** [Lucide React](https://lucide.dev/)
-* **Database:** SQLite (`tauri-plugin-sql`)
-* **Routing:** React Router DOM
+### 🔄 Otomatik Güncelleme (Auto-Update)
+* Tauri Updater sayesinde Github Releases üzerinden uygulamadan çıkmadan tek tıkla yeni sürüme geçiş.
 
 ---
 
-## 📦 Installation & Setup
+## 🛠 Kullanılan Teknolojiler
 
-To develop or run this project locally:
+* **Çekirdek (Masaüstü):** [Tauri v2](https://tauri.app/) (Rust + Webview)
+* **Frontend:** [React 19](https://react.dev/) + TypeScript + [Vite](https://vitejs.dev/)
+* **Backend & Veritabanı:** [Supabase](https://supabase.com/) (PostgreSQL + Auth)
+* **Tasarım Sistemi:** [Tailwind CSS](https://tailwindcss.com/) + [Shadcn/ui](https://ui.shadcn.com/)
+* **İkonlar:** [Lucide React](https://lucide.dev/)
+* **Yönlendirme:** React Router v7
+* **CI/CD:** Github Actions (Otomatik Windows .exe, .msi derleme ve yayınlama)
 
-### 1. Prerequisites
-* [Node.js](https://nodejs.org/) (v16 or newer)
-* [Rust](https://www.rust-lang.org/tools/install) (Required for Tauri)
-* Visual Studio Code (Recommended)
+---
 
-### 2. Install Dependencies
-Open your terminal in the project folder and run:
+## 📦 Kurulum ve Geliştirme
+
+Projeyi yerel ortamınızda çalıştırmak ve geliştirmek için:
+
+### 1. Gereksinimler
+* [Node.js](https://nodejs.org/) (v20 veya daha güncel)
+* [Rust](https://www.rust-lang.org/tools/install) (Tauri derlemesi için zorunlu)
+* C++ Build Tools (Windows için Visual Studio üzerinden)
+* Supabase hesabı ve projesi (Veritabanı URL ve Anon Key)
+
+### 2. Çevre Değişkenleri (Environment Variables)
+Proje ana dizininde `.env` isimli bir dosya oluşturup Supabase bilgilerinizi ekleyin:
+```env
+VITE_SUPABASE_URL=https://your-project-url.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### 3. Bağımlılıkların Yüklenmesi
 ```bash
 npm install
 ```
-### 3. Run Development Server
+
+### 4. Geliştirme Ortamında Başlatma
 ```bash
 npm run tauri dev
+```
+
+### 5. Yeni Sürüm Derleme (Build & Release)
+Github Actions altyapısı, `v*` formatındaki (örneğin `v0.1.4`) etiketleri (tag) algılayarak otomatik olarak derler.
+```bash
+git tag v0.1.4
+git push origin v0.1.4
 ```
