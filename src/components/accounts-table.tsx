@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Eye, Plus, MoreHorizontal, User, Star, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Filter, Wallet, Printer, ShieldCheck, Percent } from "lucide-react"
+import { Eye, Plus, MoreHorizontal, User, Star, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Filter, Wallet, Printer, ShieldCheck, Percent, Download, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,9 @@ import { useToast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
 import { addTransaction, getTransactionsByAccount, getAccounts } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
+import { save } from "@tauri-apps/plugin-dialog"
+import { writeFile } from "@tauri-apps/plugin-fs"
+import html2pdf from "html2pdf.js"
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 const formatDate = (dateStr: string) => { const d = new Date(dateStr); return d.toLocaleDateString("tr-TR") + " " + d.toLocaleTimeString("tr-TR", { hour: '2-digit', minute: '2-digit' }); }
@@ -21,17 +24,27 @@ interface AccountsTableProps { data: Account[]; fullData: Account[]; onDelete: (
 
 export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: AccountsTableProps) {
   const { toast } = useToast()
-  const { institutionType } = useAuth()
+  const { institutionType, institutionName } = useAuth()
 
   const getAccountsSingleName = () => {
     switch(institutionType) {
       case 'apartman': return "Sakin/Malik"
       case 'koop': return "Üye"
       case 'dernek': return "Üye/Bağışçı"
-      case 'bireysel': return "Kişi"
-      case 'sirket': return "Cari"
-      case 'cami': return "Bağışçı"
+      case 'cami': return "Cemaat/Bağışçı"
+      case 'sirket': return "Müşteri"
       default: return "Cari"
+    }
+  }
+
+  const getEkstreTitle = () => {
+    switch(institutionType) {
+      case 'apartman': return "APARTMAN SAKİN/MALİK HESAP EKSTRESİ"
+      case 'koop': return "KOOPERATİF ÜYE HESAP EKSTRESİ"
+      case 'dernek': return "DERNEK ÜYE/BAĞIŞÇI HESAP EKSTRESİ"
+      case 'cami': return "CAMİ CEMAAT/BAĞIŞÇI HESAP EKSTRESİ"
+      case 'sirket': return "ŞİRKET MÜŞTERİ HESAP EKSTRESİ"
+      default: return "CARİ HESAP EKSTRESİ"
     }
   }
 
@@ -160,7 +173,6 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
       </tr>
     `).join('');
 
-    const dateRangeText = (historyStartDate || historyEndDate) ? `<p style="margin-top:5px; font-size: 13px; color:#ef4444; font-weight: bold;">Filtre: ${historyStartDate || 'Başlangıç'} / ${historyEndDate || 'Bugün'}</p>` : '';
 
     doc.write(`
       <html>
@@ -183,7 +195,14 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
           </style>
         </head>
         <body>
-          <div class="header"><h1>${selectedAccount.name}</h1><p style="margin:0; color:#666;">Telefon: ${selectedAccount.phone || '-'} | Özel Kod: ${selectedAccount.custom_code || '-'} | Ekstre</p>${dateRangeText}</div>
+          <div class="header">
+            <h2 style="text-align: center; margin: 0 0 5px 0; font-size: 18px; text-transform: uppercase;">${institutionName || ''}</h2>
+            <h3 style="text-align: center; margin: 0 0 15px 0; font-size: 14px;">${getEkstreTitle()}</h3>
+            <h1>${selectedAccount.name}</h1>
+            <p style="margin:0; color:#666;">Telefon: ${selectedAccount.phone || '-'} | Özel Kod: ${selectedAccount.custom_code || '-'} | Ekstre</p>
+            <p style="margin-top:5px; font-size: 13px; font-weight: bold; color: #666;">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</p>
+            ${(historyStartDate || historyEndDate) ? `<p style="margin-top:5px; font-size: 13px; color:#ef4444; font-weight: bold;">Filtre: ${historyStartDate || 'Başlangıç'} - ${historyEndDate || 'Bugün'}</p>` : ''}
+          </div>
           <div class="summary">
             <div class="summary-box"><div style="font-size:11px; color:#666;">Toplam Borç</div><div style="font-size:18px; color:#dc2626; margin-top:5px;">${formatCurrency(selectedAccount.borc)}</div></div>
             <div class="summary-box"><div style="font-size:11px; color:#666;">Toplam Alacak</div><div style="font-size:18px; color:#16a34a; margin-top:5px;">${formatCurrency(selectedAccount.alacak)}</div></div>
@@ -209,6 +228,81 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
     `);
     doc.close();
     setTimeout(() => { printWindow.contentWindow?.focus(); printWindow.contentWindow?.print(); setTimeout(() => { document.body.removeChild(printWindow); }, 1000); }, 250);
+  };
+
+  const handleDownloadExcel = async () => {
+    if (!selectedAccount) return;
+    try {
+      const BOM = "\uFEFF";
+      let csvContent = BOM + `${institutionName || ''} - ${getEkstreTitle()}\n`;
+      csvContent += `Hesap Adı:;${selectedAccount.name}\n`;
+      csvContent += `Yazdırılma Tarihi:;\u200B${new Date().toLocaleString('tr-TR')}\n`;
+      if (historyStartDate || historyEndDate) {
+        csvContent += `Filtre:;${historyStartDate ? new Date(historyStartDate).toLocaleDateString('tr-TR') : 'Başlangıç'} - ${historyEndDate ? new Date(historyEndDate).toLocaleDateString('tr-TR') : 'Bugün'}\n`;
+      }
+      csvContent += `\n`;
+      csvContent += "İşlem Tarihi;Açıklama;Yöntem;Borç;Alacak;Genel Bakiye;Durum\n";
+      const chronologicalHistory = [...displayedHistory].reverse();
+      chronologicalHistory.forEach(tx => {
+        const tarih = '\u200B' + formatDate(tx.date);
+        const aciklama = (tx.description || '').replace(/;/g, ',');
+        const yontem = (tx.method || 'Nakit').replace(/;/g, ',');
+        const borc = tx.type === 'odeme' ? tx.amount.toString().replace('.', ',') : '0';
+        const alacak = tx.type === 'tahsilat' ? tx.amount.toString().replace('.', ',') : '0';
+        const bakiye = Math.abs(tx.snapshot.bakiye || 0).toString().replace('.', ',');
+        const durum = (tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-';
+        csvContent += `${tarih};${aciklama};${yontem};${borc};${alacak};${bakiye};${durum}\n`;
+      });
+      csvContent += `\nTOPLAMLAR;;;${(selectedAccount.borc || 0).toString().replace('.', ',')};${(selectedAccount.alacak || 0).toString().replace('.', ',')};${Math.abs(selectedAccount.bakiye || 0).toString().replace('.', ',')};${(selectedAccount.borc || 0) > (selectedAccount.alacak || 0) ? 'BORÇLU' : (selectedAccount.borc || 0) < (selectedAccount.alacak || 0) ? 'ALACAKLI' : '-'}\n`;
+      
+      const safeName = (selectedAccount.name || 'Hesap').replace(/[\/\\?%*:|"<>]/g, '_');
+      const filePath = await save({ filters: [{ name: 'Excel (CSV)', extensions: ['csv'] }], defaultPath: `${safeName}_Hesap_Ekstresi.csv` });
+      if (filePath) {
+        const encoder = new TextEncoder();
+        await writeFile(filePath, encoder.encode(csvContent));
+        toast({ title: "Başarılı", description: "Excel dosyası kaydedildi." });
+      }
+    } catch (e: any) {
+      toast({ title: "Hata", description: "Dosya kaydedilemedi: " + (e?.message || String(e)), variant: "destructive" });
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedAccount) return;
+    try {
+      const safeName = (selectedAccount.name || 'Hesap').replace(/[\/\\?%*:|"<>]/g, '_');
+      const filePath = await save({ filters: [{ name: 'PDF', extensions: ['pdf'] }], defaultPath: `${safeName}_Hesap_Ekstresi.pdf` });
+      if (filePath) {
+        toast({ title: "Hazırlanıyor", description: "PDF oluşturuluyor, lütfen bekleyin..." });
+        const html = document.createElement('div');
+        const chronologicalHistory = [...displayedHistory].reverse();
+        const transactionsHtml = chronologicalHistory.map(tx => `<tr><td style="padding: 5px; border: 1px solid #ddd;">${formatDate(tx.date)}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.description}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.method || 'Nakit'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'odeme' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'tahsilat' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${formatCurrency(Math.abs(tx.snapshot.bakiye || 0))}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: center;">${(tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-'}</td></tr>`).join('');
+        
+        html.innerHTML = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #333;">
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+              <h2 style="margin: 0 0 5px 0; font-size: 16px; text-transform: uppercase;">${institutionName || ''}</h2>
+              <h3 style="margin: 0 0 15px 0; font-size: 13px;">${getEkstreTitle()}</h3>
+              <h1 style="margin:0 0 5px 0; font-size: 18px; text-align: left;">${selectedAccount.name}</h1>
+              <div style="text-align: left; color:#666; font-size: 11px;">Telefon: ${selectedAccount.phone || '-'} | Özel Kod: ${selectedAccount.custom_code || '-'}</div>
+              <div style="text-align: left; font-weight: bold; margin-top:5px; font-size: 11px;">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</div>
+              ${(historyStartDate || historyEndDate) ? `<div style="text-align: left; font-weight: bold; margin-top:5px; color:#ef4444; font-size: 11px;">Filtre: ${historyStartDate || 'Başlangıç'} - ${historyEndDate || 'Bugün'}</div>` : ''}
+            </div>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+              <thead style="background-color: #f1f5f9;"><tr><th style="padding: 5px; border: 1px solid #ddd;">Tarih</th><th style="padding: 5px; border: 1px solid #ddd;">Açıklama</th><th style="padding: 5px; border: 1px solid #ddd;">Yöntem</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Borç</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Alacak</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Genel Bakiye</th><th style="padding: 5px; border: 1px solid #ddd; text-align: center;">Durum</th></tr></thead>
+              <tbody>${transactionsHtml || '<tr><td colspan="7" style="text-align:center; padding: 10px;">Kayıt bulunamadı.</td></tr>'}</tbody>
+            </table>
+          </div>
+        `;
+        const worker = html2pdf().from(html).set({ margin: 10, filename: 'ekstre.pdf', html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } });
+        const pdfBlob = await worker.output('blob');
+        const arrayBuffer = await pdfBlob.arrayBuffer();
+        await writeFile(filePath, new Uint8Array(arrayBuffer));
+        toast({ title: "Başarılı", description: "PDF dosyası kaydedildi." });
+      }
+    } catch (e: any) {
+      toast({ title: "Hata", description: "PDF oluşturulamadı: " + (e?.message || String(e)), variant: "destructive" });
+    }
   };
 
   const displayedHistory = accountHistory.filter(tx => {
@@ -389,7 +483,14 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                   {selectedAccount.type === 'corporate' && selectedAccount.owner_id && (
                     <div className="flex items-center gap-1 text-sm text-primary font-medium mt-0.5"><ShieldCheck className="h-4 w-4" /> Sahibi: {getOwnerName(selectedAccount.owner_id)}</div>
                   )}
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 cursor-pointer hover:text-primary" onClick={() => copyPhone(selectedAccount.phone)}><Phone className="h-3 w-3" />{selectedAccount.phone}</div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1 cursor-pointer hover:text-primary" onClick={() => copyPhone(selectedAccount.phone)}>
+                    <Phone className="h-3 w-3" />{selectedAccount.phone}
+                  </div>
+                  {selectedAccount.email && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                      <Mail className="h-3 w-3" />{selectedAccount.email}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -402,7 +503,27 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
               <div>
                 <div className="flex items-center justify-between mb-3 border-b pb-2 mt-2">
                   <h4 className="font-semibold flex items-center gap-2"><Calendar className="h-4 w-4" /> Hesap Ekstresi</h4>
-                  <Button variant="outline" size="sm" onClick={handlePrintHistory} className="h-8 gap-1.5"><Printer className="h-3.5 w-3.5" /> Yazdır</Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handlePrintHistory} className="h-8 gap-1.5"><Printer className="h-3.5 w-3.5" /> Yazdır</Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 px-2"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleDownloadPdf}>
+                          <Download className="mr-2 h-4 w-4" /> İndir (PDF)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleDownloadExcel}>
+                          <Download className="mr-2 h-4 w-4" /> İndir (Excel)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          toast({ title: "Bilgi", description: "E-posta gönderme özelliği yakında eklenecektir." });
+                        }}>
+                          <Mail className="mr-2 h-4 w-4" /> Mail At
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 mb-4 bg-muted/30 p-2 rounded-md border border-dashed">
