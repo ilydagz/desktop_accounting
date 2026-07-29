@@ -256,11 +256,26 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
       csvContent += `\nTOPLAMLAR;;;${(selectedAccount.borc || 0).toString().replace('.', ',')};${(selectedAccount.alacak || 0).toString().replace('.', ',')};${Math.abs(selectedAccount.bakiye || 0).toString().replace('.', ',')};${(selectedAccount.borc || 0) > (selectedAccount.alacak || 0) ? 'BORÇLU' : (selectedAccount.borc || 0) < (selectedAccount.alacak || 0) ? 'ALACAKLI' : '-'}\n`;
       
       const safeName = (selectedAccount.name || 'Hesap').replace(/[\/\\?%*:|"<>]/g, '_');
-      const filePath = await save({ filters: [{ name: 'Excel (CSV)', extensions: ['csv'] }], defaultPath: `${safeName}_Hesap_Ekstresi.csv` });
-      if (filePath) {
-        const encoder = new TextEncoder();
-        await writeFile(filePath, encoder.encode(csvContent));
-        toast({ title: "Başarılı", description: "Excel dosyası kaydedildi." });
+      const isTauri = !!(window as any).__TAURI_INTERNALS__;
+      
+      if (isTauri) {
+        const filePath = await save({ filters: [{ name: 'Excel (CSV)', extensions: ['csv'] }], defaultPath: `${safeName}_Hesap_Ekstresi.csv` });
+        if (filePath) {
+          const encoder = new TextEncoder();
+          await writeFile(filePath, encoder.encode(csvContent));
+          toast({ title: "Başarılı", description: "Excel dosyası kaydedildi." });
+        }
+      } else {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${safeName}_Hesap_Ekstresi.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast({ title: "Başarılı", description: "Excel dosyası indirildi." });
       }
     } catch (e: any) {
       toast({ title: "Hata", description: "Dosya kaydedilemedi: " + (e?.message || String(e)), variant: "destructive" });
@@ -271,34 +286,44 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
     if (!selectedAccount) return;
     try {
       const safeName = (selectedAccount.name || 'Hesap').replace(/[\/\\?%*:|"<>]/g, '_');
-      const filePath = await save({ filters: [{ name: 'PDF', extensions: ['pdf'] }], defaultPath: `${safeName}_Hesap_Ekstresi.pdf` });
-      if (filePath) {
-        toast({ title: "Hazırlanıyor", description: "PDF oluşturuluyor, lütfen bekleyin..." });
-        const html = document.createElement('div');
-        const chronologicalHistory = [...displayedHistory].reverse();
-        const transactionsHtml = chronologicalHistory.map(tx => `<tr><td style="padding: 5px; border: 1px solid #ddd;">${formatDate(tx.date)}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.description}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.method || 'Nakit'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'odeme' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'tahsilat' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${formatCurrency(Math.abs(tx.snapshot.bakiye || 0))}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: center;">${(tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-'}</td></tr>`).join('');
-        
-        html.innerHTML = `
-          <div style="font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #333;">
-            <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
-              <h2 style="margin: 0 0 5px 0; font-size: 16px; text-transform: uppercase;">${institutionName || ''}</h2>
-              <h3 style="margin: 0 0 15px 0; font-size: 13px;">${getEkstreTitle()}</h3>
-              <h1 style="margin:0 0 5px 0; font-size: 18px; text-align: left;">${selectedAccount.name}</h1>
-              <div style="text-align: left; color:#666; font-size: 11px;">Telefon: ${selectedAccount.phone || '-'} | Özel Kod: ${selectedAccount.custom_code || '-'}</div>
-              <div style="text-align: left; font-weight: bold; margin-top:5px; font-size: 11px;">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</div>
-              ${(historyStartDate || historyEndDate) ? `<div style="text-align: left; font-weight: bold; margin-top:5px; color:#ef4444; font-size: 11px;">Filtre: ${historyStartDate || 'Başlangıç'} - ${historyEndDate || 'Bugün'}</div>` : ''}
-            </div>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-              <thead style="background-color: #f1f5f9;"><tr><th style="padding: 5px; border: 1px solid #ddd;">Tarih</th><th style="padding: 5px; border: 1px solid #ddd;">Açıklama</th><th style="padding: 5px; border: 1px solid #ddd;">Yöntem</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Borç</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Alacak</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Genel Bakiye</th><th style="padding: 5px; border: 1px solid #ddd; text-align: center;">Durum</th></tr></thead>
-              <tbody>${transactionsHtml || '<tr><td colspan="7" style="text-align:center; padding: 10px;">Kayıt bulunamadı.</td></tr>'}</tbody>
-            </table>
+      const isTauri = !!(window as any).__TAURI_INTERNALS__;
+      
+      toast({ title: "Hazırlanıyor", description: "PDF oluşturuluyor, lütfen bekleyin..." });
+      
+      const html = document.createElement('div');
+      const chronologicalHistory = [...displayedHistory].reverse();
+      const transactionsHtml = chronologicalHistory.map(tx => `<tr><td style="padding: 5px; border: 1px solid #ddd;">${formatDate(tx.date)}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.description}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.method || 'Nakit'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'odeme' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'tahsilat' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${formatCurrency(Math.abs(tx.snapshot.bakiye || 0))}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: center;">${(tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-'}</td></tr>`).join('');
+      
+      html.innerHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #333;">
+          <div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+            <h2 style="margin: 0 0 5px 0; font-size: 16px; text-transform: uppercase;">${institutionName || ''}</h2>
+            <h3 style="margin: 0 0 15px 0; font-size: 13px;">${getEkstreTitle()}</h3>
+            <h1 style="margin:0 0 5px 0; font-size: 18px; text-align: left;">${selectedAccount.name}</h1>
+            <div style="text-align: left; color:#666; font-size: 11px;">Telefon: ${selectedAccount.phone || '-'} | Özel Kod: ${selectedAccount.custom_code || '-'}</div>
+            <div style="text-align: left; font-weight: bold; margin-top:5px; font-size: 11px;">Yazdırılma Tarihi: ${new Date().toLocaleString('tr-TR')}</div>
+            ${(historyStartDate || historyEndDate) ? `<div style="text-align: left; font-weight: bold; margin-top:5px; color:#ef4444; font-size: 11px;">Filtre: ${historyStartDate || 'Başlangıç'} - ${historyEndDate || 'Bugün'}</div>` : ''}
           </div>
-        `;
-        const worker = html2pdf().from(html).set({ margin: 10, filename: 'ekstre.pdf', html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } });
-        const pdfBlob = await worker.output('blob');
-        const arrayBuffer = await pdfBlob.arrayBuffer();
-        await writeFile(filePath, new Uint8Array(arrayBuffer));
-        toast({ title: "Başarılı", description: "PDF dosyası kaydedildi." });
+          <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+            <thead style="background-color: #f1f5f9;"><tr><th style="padding: 5px; border: 1px solid #ddd;">Tarih</th><th style="padding: 5px; border: 1px solid #ddd;">Açıklama</th><th style="padding: 5px; border: 1px solid #ddd;">Yöntem</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Borç</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Alacak</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Genel Bakiye</th><th style="padding: 5px; border: 1px solid #ddd; text-align: center;">Durum</th></tr></thead>
+            <tbody>${transactionsHtml || '<tr><td colspan="7" style="text-align:center; padding: 10px;">Kayıt bulunamadı.</td></tr>'}</tbody>
+          </table>
+        </div>
+      `;
+      
+      if (isTauri) {
+        const filePath = await save({ filters: [{ name: 'PDF', extensions: ['pdf'] }], defaultPath: `${safeName}_Hesap_Ekstresi.pdf` });
+        if (filePath) {
+          const worker = html2pdf().from(html).set({ margin: 10, filename: `${safeName}_Hesap_Ekstresi.pdf`, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } });
+          const pdfBlob = await worker.output('blob');
+          const arrayBuffer = await pdfBlob.arrayBuffer();
+          await writeFile(filePath, new Uint8Array(arrayBuffer));
+          toast({ title: "Başarılı", description: "PDF dosyası kaydedildi." });
+        }
+      } else {
+        const worker = html2pdf().from(html).set({ margin: 10, filename: `${safeName}_Hesap_Ekstresi.pdf`, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } });
+        await worker.save();
+        toast({ title: "Başarılı", description: "PDF dosyası indirildi." });
       }
     } catch (e: any) {
       toast({ title: "Hata", description: "PDF oluşturulamadı: " + (e?.message || String(e)), variant: "destructive" });
