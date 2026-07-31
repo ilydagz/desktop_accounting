@@ -282,6 +282,32 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
     }
   };
 
+  const handleSendEmail = () => {
+    if (!selectedAccount) return;
+    if (!selectedAccount.email) {
+      toast({ title: "Hata", description: "Bu hesaba ait e-posta adresi bulunamadı.", variant: "destructive" });
+      return;
+    }
+
+    const subject = encodeURIComponent(`${institutionName || 'Limes Muhasebe'} - ${getEkstreTitle()}`);
+    
+    let body = `Sayın ${selectedAccount.name},\n\n`;
+    body += `${institutionName || ''} nezdindeki güncel hesap durumunuz aşağıdaki gibidir:\n\n`;
+    body += `Toplam Borç: ${formatCurrency(selectedAccount.borc || 0)}\n`;
+    body += `Toplam Alacak: ${formatCurrency(selectedAccount.alacak || 0)}\n`;
+    
+    const bakiye = Math.abs(selectedAccount.bakiye || 0);
+    const bakiyeTuru = (selectedAccount.borc || 0) > (selectedAccount.alacak || 0) ? ' (BORÇLU)' : 
+                       (selectedAccount.borc || 0) < (selectedAccount.alacak || 0) ? ' (ALACAKLI)' : '';
+                       
+    body += `Net Bakiye: ${formatCurrency(bakiye)}${bakiyeTuru}\n\n`;
+    body += `Detaylı hesap ekstrenizi pdf veya excel olarak talep etmek isterseniz bildirebilirsiniz.\n\n`;
+    body += `İyi günler dileriz.`;
+    
+    const bodyEncoded = encodeURIComponent(body);
+    window.location.href = `mailto:${selectedAccount.email}?subject=${subject}&body=${bodyEncoded}`;
+  };
+
   const handleDownloadPdf = async () => {
     if (!selectedAccount) return;
     try {
@@ -541,9 +567,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                         <DropdownMenuItem onClick={handleDownloadExcel}>
                           <Download className="mr-2 h-4 w-4" /> İndir (Excel)
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          toast({ title: "Bilgi", description: "E-posta gönderme özelliği yakında eklenecektir." });
-                        }}>
+                        <DropdownMenuItem onClick={handleSendEmail}>
                           <Mail className="mr-2 h-4 w-4" /> Mail At
                         </DropdownMenuItem>
                       </DropdownMenuContent>
