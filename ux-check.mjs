@@ -1,0 +1,183 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { build } from 'esbuild';
+import { JSDOM } from 'jsdom';
+
+const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/ux-check', pretendToBeVisual: true });
+for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'KeyboardEvent', 'MouseEvent', 'getComputedStyle']) {
+  Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
+}
+globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
+globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+globalThis.PointerEvent = dom.window.PointerEvent = class extends dom.window.MouseEvent { constructor(type, options) { super(type, options); this.pointerType = options?.pointerType || 'mouse'; this.pointerId = 1; } };
+dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+dom.window.HTMLElement.prototype.hasPointerCapture = () => false;
+dom.window.HTMLElement.prototype.setPointerCapture = function () {};
+dom.window.HTMLElement.prototype.releasePointerCapture = function () {};
+
+const api = globalThis.__limesUiCheck = {
+  saved: [], attempts: 0, refreshes: 0, failure: false, deletions: 0,
+  accounts: [{ id: 'a', name: 'Örnek A', custom_code: 'TEST-001', type: 'individual', borc: 10, alacak: 5, bakiye: 123 }],
+  ledgers: [{ id: 'cash', name: 'Test kasası', type: 'kasa', balance: 100 }], transactions: [],
+};
+const mockDb = `
+import { ActionCancelledError, WriteOutcomeError } from '@/lib/action-safety';
+const api = globalThis.__limesUiCheck;
+export class DuplicateTransactionError extends Error {}
+export async function addTransaction(tx) { api.attempts++; api.saved.push(tx); if(api.failure) throw new WriteOutcomeError('Sonuç belirsiz', 'uncertain'); }
+export async function addTransactionToMultipleAccounts() {}
+export async function deleteTransaction() {}
+export async function validateTransactionEdit() {}
+export async function updateTransactionPaidStatus() {}
+export async function getAccount() { return api.accounts[0]; }
+export async function getAccounts() { return api.accounts; }
+export async function getTransactionsByAccount() { return []; }
+export async function addLedger() {}
+export async function deleteLedger(id, confirmHistory) { if (!await confirmHistory(3)) throw new ActionCancelledError(); api.deletions++; }
+export async function getAccountingAudit() { return { capturedAt: new Date().toISOString(), accounts: [], ledgers: [] }; }
+`;
+const entry = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { ActionSafetyProvider, useActionSafety } from '@/contexts/ActionSafetyContext';
+import TransactionsPage from '@/pages/TransactionsPage';
+import LedgersPage from '@/pages/LedgersPage';
+import { WriteSafetyStatus } from '@/components/WriteSafetyStatus';
+function Probe() { const {confirm}=useActionSafety(); return <button onClick={()=>void confirm({title:'Hesabı sil',description:'Silme onayı',requireText:'TEST-001',destructive:true,confirmLabel:'Hesabı sil'})}>Silme kontrolü</button>; }
+export function mount(container, screen='transactions') { const root=createRoot(container); root.render(<BrowserRouter><ActionSafetyProvider userId="ui-check"><WriteSafetyStatus/>{screen==='ledgers' ? <LedgersPage/> : <><TransactionsPage/><Probe/></>}</ActionSafetyProvider></BrowserRouter>); return root; }
+`;
+const compiled = await build({
+  stdin: { contents: entry, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, write: false,
+  platform: 'node', format: 'cjs', packages: 'external', logLevel: 'silent',
+  plugins: [{ name: 'isolated-ui', setup(builder) {
+    builder.onResolve({ filter: /^@\/contexts\/(AuthContext|DataContext)$/ }, args => ({ path: args.path, namespace: 'mock' }));
+    builder.onResolve({ filter: /^@\/services\/db$/ }, args => ({ path: args.path, namespace: 'mock' }));
+    builder.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ loader: 'js', resolveDir: process.cwd(), contents:
+      args.path.endsWith('AuthContext') ? `export function useAuth(){return {user:{id:'ui-check'},institutionType:'koop',institutionId:'institution'};}` :
+      args.path.endsWith('DataContext') ? `export function useData(){const api=globalThis.__limesUiCheck;return {...api,refreshData:async()=>{api.refreshes++;}};}` : mockDb,
+    }));
+  } }],
+});
+const module = { exports: {} };
+new Function('require', 'module', 'exports', compiled.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports);
+const { act } = await import('react');
+let root;
+const button = (text, scope = document) => {
+  const found = [...scope.querySelectorAll('button')].find(item => item.textContent.trim() === text);
+  assert.ok(found, `Button '${text}' missing: ${[...scope.querySelectorAll('button')].map(item => item.textContent.trim()).join(' | ')}`);
+  return found;
+};
+const click = async element => { assert.ok(element); await act(async () => { element.click(); }); };
+const dialog = () => document.querySelector('[role="dialog"]');
+const alert = () => document.querySelector('[role="alertdialog"]');
+const fill = async (element, value) => {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(element, value);
+    element.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    element.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  });
+};
+async function openForm() {
+  await click(button('Yeni İşlem Ekle'));
+  const trigger = dialog().querySelector('[role="combobox"]');
+  await act(async () => { trigger.focus(); trigger.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true })); });
+  const option = document.querySelector('[role="option"]');
+  assert.ok(option, 'Account option did not open');
+  await act(async () => { option.focus(); option.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })); });
+  assert.match(trigger.textContent, /Örnek A/, 'The account must be selected before saving');
+  await fill(dialog().querySelector('input[type="number"]'), '200');
+}
+
+await act(async () => { root = module.exports.mount(document.getElementById('root')); });
+await openForm();
+await click(button('Close', dialog()));
+assert.match(alert().textContent, /Kaydedilmemiş bilgiler var/);
+await click(button('Vazgeç', alert()));
+assert.equal(dialog().querySelector('input[type="number"]').value, '200');
+assert.equal(api.attempts, 0);
+console.log('PASS: cancelling dirty-form close preserves entered values');
+
+await click(button('Tahsilatı Kaydet', dialog()));
+assert.match(alert().textContent, /TEST-001/);
+assert.match(alert().textContent, /200,00/);
+assert.equal(document.activeElement.textContent.trim(), 'Vazgeç');
+await click(button('Vazgeç', alert()));
+assert.equal(api.attempts, 0);
+assert.equal(dialog().querySelector('input[type="number"]').value, '200');
+console.log('PASS: preview cancellation sends nothing and defaults focus to cancel');
+
+const saveButton = button('Tahsilatı Kaydet', dialog());
+await act(async () => { saveButton.click(); saveButton.click(); });
+assert.equal(document.querySelectorAll('[role="alertdialog"]').length, 1);
+assert.equal(api.attempts, 0);
+console.log('PASS: rapid repeated save clicks produce only one review');
+await click(button('Kaydı onayla', alert()));
+assert.equal(api.attempts, 1);
+assert.equal(api.saved[0].amount, 200);
+assert.equal(api.saved[0].type, 'tahsilat');
+assert.equal(dialog(), null);
+console.log('PASS: explicit confirmation posts exactly once with the original amount/type');
+
+await click(button('Silme kontrolü'));
+assert.equal(button('Hesabı sil', alert()).disabled, true);
+await fill(alert().querySelector('input'), 'WRONG');
+assert.equal(button('Hesabı sil', alert()).disabled, true);
+await fill(alert().querySelector('input'), 'TEST-001');
+assert.equal(button('Hesabı sil', alert()).disabled, false);
+await click(button('Vazgeç', alert()));
+console.log('PASS: destructive confirmation requires the exact account code');
+
+await openForm();
+Object.defineProperty(dom.window.navigator, 'onLine', { configurable: true, value: false });
+await act(async () => { dom.window.dispatchEvent(new dom.window.Event('offline')); });
+assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, true);
+assert.equal(dialog().querySelector('input[type="number"]').value, '200');
+Object.defineProperty(dom.window.navigator, 'onLine', { configurable: true, value: true });
+await act(async () => { dom.window.dispatchEvent(new dom.window.Event('online')); });
+assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, false);
+console.log('PASS: offline submission is disabled without losing the form');
+
+api.failure = true;
+await click(button('Tahsilatı Kaydet', dialog()));
+await click(button('Kaydı onayla', alert()));
+assert.equal(api.attempts, 2);
+assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, true);
+assert.match(document.body.textContent, /Son işlemin sonucu kontrol edilmeli/);
+assert.ok(dom.window.localStorage.getItem('limes:write-review:ui-check'));
+console.log('PASS: an uncertain response blocks retry and persists only a review marker');
+
+await click(button('Close', dialog()));
+await click(button('Değişiklikleri bırak', alert()));
+await act(async () => { root.unmount(); });
+await act(async () => { root = module.exports.mount(document.getElementById('root')); });
+assert.match(document.body.textContent, /Son işlemin sonucu kontrol edilmeli/);
+await click(button('Kayıtları kontrol ettim'));
+assert.equal(button('Kontrol ettim', alert()).disabled, true);
+await click(alert().querySelector('input[type="checkbox"]'));
+assert.equal(button('Kontrol ettim', alert()).disabled, false);
+await click(button('Kontrol ettim', alert()));
+assert.equal(dom.window.localStorage.getItem('limes:write-review:ui-check'), null);
+assert.equal(api.attempts, 2);
+console.log('PASS: reopening retains the warning; acknowledging it never posts a movement');
+
+await act(async () => { root.unmount(); });
+await act(async () => { root = module.exports.mount(document.getElementById('root'), 'ledgers'); });
+const deleteLedgerButton = () => document.querySelector('button[aria-label="Test kasası hesabını sil"]');
+await click(deleteLedgerButton());
+assert.match(alert().textContent, /Hesabı silmek istediğinize emin misiniz/);
+assert.match(alert().textContent, /Hesaba bağlı hareket sayısı3/);
+assert.equal(document.activeElement.textContent.trim(), 'Vazgeç');
+assert.equal(api.deletions, 0);
+await click(button('Vazgeç', alert()));
+assert.equal(api.deletions, 0);
+await click(deleteLedgerButton());
+await click(button('Evet, hesabı ve hareketleri sil', alert()));
+assert.equal(api.deletions, 1);
+assert.equal(alert(), null);
+console.log('PASS: account deletion uses one confirmation with history count; cancellation sends no deletion');
+await act(async () => { root.unmount(); });
+dom.window.close();
+console.log('All 9 isolated UI checks passed. No real database requests were available.');

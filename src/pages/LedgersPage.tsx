@@ -11,20 +11,28 @@ import { useToast } from "@/hooks/use-toast"
 import { addLedger } from "@/services/db"
 // removed unused import
 import { useData } from "@/contexts/DataContext"
+import { useMutationLock } from '@/hooks/use-mutation-lock'
+import { useActionSafety } from '@/contexts/ActionSafetyContext'
+import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
+import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
+import { ActionCancelledError } from '@/lib/action-safety'
+import { confirmHistoryDeletion } from '@/lib/confirm-deletion'
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 
 export default function LedgersPage() {
   const { toast } = useToast()
-  const { ledgers, setLedgers, refreshData } = useData()
+  const { ledgers, refreshData } = useData()
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const mutation = useMutationLock()
+  const { confirm, reportError, runWrite } = useActionSafety()
 
   const [formData, setFormData] = useState({
     type: "kasa" as "kasa" | "banka",
     name: "",
     currency: "TRY"
   })
+  const closeForm = useFormExitGuard(isModalOpen, JSON.stringify(formData), mutation.busy)
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -32,38 +40,36 @@ export default function LedgersPage() {
       return
     }
     
+    if (!mutation.begin()) return;
     try {
-      setLoading(true)
-      const tempId = "temp-" + Date.now();
-      const newLedger = { id: tempId, type: formData.type, name: formData.name, currency: formData.currency, balance: 0 };
-      setLedgers(prev => [newLedger, ...prev]);
+      await runWrite(() => addLedger({ type: formData.type, name: formData.name, currency: formData.currency }));
       
       setIsModalOpen(false)
       setFormData({ type: "kasa", name: "", currency: "TRY" })
       toast({ title: "Başarılı", description: "Kasa/Banka eklendi." })
 
-      await addLedger({ type: formData.type, name: formData.name, currency: formData.currency })
-      refreshData()
+      await refreshData()
     } catch (e: any) {
+      reportError(e);
       refreshData()
       toast({ title: "Hata", description: e.message, variant: "destructive" })
-    }
+    } finally { mutation.end(); }
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm("Bu hesabı silmek istediğinize emin misiniz? DİKKAT: Bu hesaba bağlı olan tüm işlemler silinecek ve ilgili kişilerin bakiyelerinden geri düşülecektir!")) {
+    const ledger = ledgers.find(item => item.id === id);
+    if (!ledger || !mutation.begin()) return;
       try {
-        setLedgers(prev => prev.filter(l => l.id !== id));
-        toast({ title: "Başarıyla Silindi", description: "Banka ve bağlı işlemler silindi." })
-        
         const { deleteLedger } = await import("@/services/db");
-        await deleteLedger(id);
-        refreshData()
+        await runWrite(() => deleteLedger(id, count => confirmHistoryDeletion(confirm, ledger.name, count)));
+        toast({ title: "Başarıyla Silindi", description: "Kasa/banka hesabı silindi." });
+        await refreshData()
       } catch (e: any) {
+        if (e instanceof ActionCancelledError) return;
+        reportError(e);
         refreshData()
         toast({ title: "Hata", description: "Silinemedi: " + e.message, variant: "destructive" })
-      }
-    }
+      } finally { mutation.end(); }
   }
 
   const totalKasa = ledgers.filter(l => l.type === 'kasa').reduce((sum, l) => sum + (l.balance || 0), 0)
@@ -133,7 +139,7 @@ export default function LedgersPage() {
                     </TableCell>
                     <TableCell className="text-right font-bold text-lg">{formatCurrency(ledger.balance || 0)}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(ledger.id)}>
+                      <Button aria-label={`${ledger.name} hesabını sil`} variant="ghost" size="icon" className="text-destructive" disabled={mutation.disabled} onClick={() => handleDelete(ledger.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
@@ -145,12 +151,13 @@ export default function LedgersPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog open={isModalOpen} onOpenChange={open => { if (open) setIsModalOpen(true); else void closeForm(() => setIsModalOpen(false)); }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Yeni Hesap Ekle</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <WriteSafetyHint />
+          <div inert={mutation.busy} className="grid gap-4 py-4">
             <div className="space-y-2">
               <Label>Hesap Türü</Label>
               <Select value={formData.type} onValueChange={(val: any) => setFormData({...formData, type: val})}>
@@ -173,8 +180,8 @@ export default function LedgersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>İptal</Button>
-            <Button onClick={handleSave} disabled={loading}>{loading ? 'Kaydediliyor...' : 'Kaydet'}</Button>
+            <Button disabled={mutation.busy} variant="outline" onClick={() => void closeForm(() => setIsModalOpen(false))}>İptal</Button>
+            <Button onClick={handleSave} disabled={mutation.disabled}>{mutation.busy ? 'İşlem sürüyor…' : 'Kaydet'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

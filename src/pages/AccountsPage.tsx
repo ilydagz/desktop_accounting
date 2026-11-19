@@ -14,6 +14,13 @@ import { useToast } from "@/hooks/use-toast"
 import { addAccount, deleteAccount, updateAccount } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
 import { useData } from "@/contexts/DataContext"
+import { useMutationLock } from "@/hooks/use-mutation-lock"
+import { type Balance } from "@/lib/account-balance"
+import { useActionSafety } from '@/contexts/ActionSafetyContext'
+import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
+import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
+import { ActionCancelledError } from '@/lib/action-safety'
+import { confirmHistoryDeletion } from '@/lib/confirm-deletion'
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 const countries = [{ label: "Türkiye", value: "TR", code: "+90", flag: "🇹🇷" }, { label: "ABD", value: "US", code: "+1", flag: "🇺🇸" }, { label: "Almanya", value: "DE", code: "+49", flag: "🇩🇪" }]
@@ -25,9 +32,12 @@ export type Account = {
 export default function AccountsPage() {
   const { toast } = useToast()
   const { institutionType } = useAuth()
-  const { accounts, setAccounts, refreshData } = useData()
+  const { accounts, refreshData } = useData()
+  const mutation = useMutationLock()
+  const { confirm, reportError, runWrite } = useActionSafety()
   const [showNewAccount, setShowNewAccount] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [originalBalances, setOriginalBalances] = useState<Balance | null>(null)
   const [accountType, setAccountType] = useState<"individual" | "corporate" | "customer">("individual")
   const [showBuildingInfo, setShowBuildingInfo] = useState(false) 
   const [openCountry, setOpenCountry] = useState(false)
@@ -44,6 +54,8 @@ export default function AccountsPage() {
       currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "",
       customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "", customCode: ""
   })
+  const closeAccountForm = useFormExitGuard(showNewAccount, JSON.stringify({ formData, accountType }), mutation.busy)
+  const closeOwnerForm = useFormExitGuard(showQuickAdd, JSON.stringify([quickAddName, quickAddPhone]), mutation.busy)
 
   const getTerm = () => {
     switch (institutionType) {
@@ -188,23 +200,24 @@ export default function AccountsPage() {
 
   const handleQuickAdd = async () => {
       if (!quickAddName.trim()) { toast({ title: "Hata", description: "Ad Soyad gerekli.", variant: "destructive" }); return; }
+      if (!mutation.begin()) return;
       try {
-          const tempId = "temp-" + Date.now();
-          const newOwner = { id: tempId, type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 };
-          setAccounts(prev => [newOwner, ...prev]);
-          setFormData({ ...formData, ownerId: tempId });
+          const id = crypto.randomUUID();
+          await runWrite(() => addAccount({ id, type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 }));
+          setFormData(prev => ({ ...prev, ownerId: id }));
           setShowQuickAdd(false); setQuickAddName(""); setQuickAddPhone("");
           toast({ title: "Başarılı", description: "Sahip eklendi." });
           
-          await addAccount({ type: "owner", name: quickAddName, phone: quickAddPhone, borc: 0, alacak: 0, bakiye: 0 });
           await refreshData();
       } catch(e) { 
+          reportError(e);
           refreshData();
-          toast({ title: "Hata", description: "Eklenemedi", variant: "destructive" }); 
-      }
+          toast({ title: "Eklenemedi", description: e instanceof Error ? e.message : 'Sonucu kontrol edin.', variant: "destructive" });
+      } finally { mutation.end(); }
   }
 
   const handleEdit = (account: Account) => {
+      setOriginalBalances({ borc: account.borc ?? 0, alacak: account.alacak ?? 0, bakiye: account.bakiye ?? 0 });
       setEditingId(account.id); 
       setAccountType(account.type === "owner" ? "individual" : account.type);
       let ad = "", soyad = "", unvan = "";
@@ -220,7 +233,7 @@ export default function AccountsPage() {
           telefon: phone === "undefined" ? "" : phone, email: account.email === "undefined" ? "" : (account.email || ""), city: account.city === "undefined" ? "" : (account.city || ""), district: account.district === "undefined" ? "" : (account.district || ""),
           arsaPayi: account.land_share === "undefined" ? "" : (account.land_share || ""), adaParsel: account.parcel === "undefined" ? "" : (account.parcel || ""), blokNo: account.block_number === "undefined" ? "" : (account.block_number || ""), daireSayisi: account.flat_count === "undefined" ? "" : (account.flat_count || ""),
           ownerId: account.owner_id || "none", currency: account.currency || "TRY",
-          borc: account.borc.toString(), alacak: account.alacak.toString(), bakiye: account.bakiye.toString(),
+          borc: (account.borc ?? 0).toString(), alacak: (account.alacak ?? 0).toString(), bakiye: (account.bakiye ?? 0).toString(),
           role: account.role === "undefined" ? "" : (account.role || ""), salary: account.salary === "undefined" ? "" : (account.salary || ""), startDate: account.start_date === "undefined" ? "" : (account.start_date || ""),
           customerGroup: account.customer_group === "undefined" ? "" : (account.customer_group || ""), maturityDays: account.maturity_days === "undefined" ? "" : (account.maturity_days || ""), deliveryAddress: account.delivery_address === "undefined" ? "" : (account.delivery_address || ""), notes: account.notes === "undefined" ? "" : (account.notes || ""),
           customCode: account.custom_code === "undefined" ? "" : (account.custom_code || "")
@@ -229,6 +242,7 @@ export default function AccountsPage() {
   }
 
   const openNewAccountModal = () => {
+      setOriginalBalances(null);
       setEditingId(null); 
       setFormData({ ad: "", soyad: "", unvan: "", tc: "", vkn: "", vergiDairesi: "", telefon: "", email: "", city: "", district: "", arsaPayi: "", adaParsel: "", blokNo: "", daireSayisi: "", ownerId: "none", currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "", customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "", customCode: "" });
       setShowNewAccount(true);
@@ -239,6 +253,7 @@ export default function AccountsPage() {
     const displayName = isPerson ? `${formData.ad} ${formData.soyad}`.trim() : formData.unvan.trim();
     if (!displayName) { toast({ title: "Hata", description: "Lütfen isim veya ünvan giriniz.", variant: "destructive" }); return }
 
+    if (!mutation.begin()) return;
     try {
         const commonData = {
             type: accountType, name: displayName,
@@ -257,36 +272,51 @@ export default function AccountsPage() {
         };
 
         if (editingId) { 
-            setAccounts(prev => prev.map(a => a.id === editingId ? { ...a, ...commonData } : a));
+            const balancesChanged = originalBalances && (commonData.borc !== originalBalances.borc || commonData.alacak !== originalBalances.alacak || commonData.bakiye !== originalBalances.bakiye);
+            if (balancesChanged && !await confirm({
+              title: 'Finansal tutar değişikliğini kontrol edin',
+              description: 'Bu işlem mevcut toplamları doğrudan değiştirir. Hareket geçmişi değişmez; girilen tutarlar otomatik hesaplanmaz.',
+              details: [
+                { label: 'Hesap', value: `${commonData.custom_code || 'Kodsuz'} — ${displayName}` },
+                { label: 'Borç', value: `${formatCurrency(originalBalances!.borc)} → ${formatCurrency(commonData.borc)}` },
+                { label: 'Alacak', value: `${formatCurrency(originalBalances!.alacak)} → ${formatCurrency(commonData.alacak)}` },
+                { label: 'Net bakiye', value: `${formatCurrency(originalBalances!.bakiye)} → ${formatCurrency(commonData.bakiye)}` },
+              ],
+              acknowledgement: 'Bu tutarları belgelerle kontrol ettim ve doğrudan değiştirmek istiyorum.', confirmLabel: 'Tutarları kaydet',
+            })) return;
+            await runWrite(() => updateAccount(editingId, commonData, originalBalances ?? undefined));
             setShowNewAccount(false); setEditingId(null);
             toast({ title: "Güncellendi", description: `${t.single} başarıyla güncellendi.` });
-            await updateAccount(editingId, commonData); 
         } 
         else { 
-            const tempId = "temp-" + Date.now();
-            setAccounts(prev => [{ id: tempId, ...commonData }, ...prev]);
+            if ((commonData.borc || commonData.alacak || commonData.bakiye) && !await confirm({ title: 'Açılış tutarlarını kontrol edin', description: 'Bu tutarlar girdiğiniz haliyle kaydedilir. Aynı tutarları geçmiş hareket olarak da girmeniz çift kayda yol açabilir.', details: [{ label: 'Hesap', value: displayName }, { label: 'Açılış borcu', value: formatCurrency(commonData.borc) }, { label: 'Açılış alacağı', value: formatCurrency(commonData.alacak) }, { label: 'Açılış bakiyesi', value: formatCurrency(commonData.bakiye) }], confirmLabel: 'Hesabı oluştur' })) return;
+            await runWrite(() => addAccount(commonData));
             setShowNewAccount(false); setEditingId(null);
             toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` });
-            await addAccount(commonData); 
         }
 
-        refreshData(); 
+        await refreshData();
     } catch (error) { 
+        reportError(error);
         refreshData();
-        toast({ title: "Hata", description: "İşlem sırasında bir hata oluştu.", variant: "destructive" });
-    }
+        toast({ title: "Kaydedilemedi", description: error instanceof Error ? error.message : "İşlem sırasında bir hata oluştu.", variant: "destructive" });
+    } finally { mutation.end(); }
   }
 
   const handleDeleteAccount = async (id: string) => { 
+      const account = accounts.find(item => item.id === id);
+      if (!account || !mutation.begin()) return;
       try {
-          setAccounts(prev => prev.filter(a => a.id !== id));
+          const name = `${account.custom_code || 'Kodsuz'} — ${account.name}`;
+          await runWrite(() => deleteAccount(id, count => confirmHistoryDeletion(confirm, name, count)));
           toast({ title: "Silindi", description: `${t.single} silindi.` });
-          await deleteAccount(id); 
-          refreshData(); 
+          await refreshData();
       } catch (e) {
+          if (e instanceof ActionCancelledError) return;
+          reportError(e);
           refreshData();
-          toast({ title: "Hata", description: "Silinemedi", variant: "destructive" });
-      }
+          toast({ title: "Silinemedi", description: e instanceof Error ? e.message : 'Sonucu kontrol edin.', variant: "destructive" });
+      } finally { mutation.end(); }
   }
 
   return (
@@ -345,11 +375,12 @@ export default function AccountsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={showNewAccount} onOpenChange={setShowNewAccount}>
+      <Dialog open={showNewAccount} onOpenChange={open => { if (open) setShowNewAccount(true); else void closeAccountForm(() => setShowNewAccount(false)); }}>
         <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingId ? `${t.single} Düzenle` : `Yeni ${t.single}`}</DialogTitle></DialogHeader>
+          <WriteSafetyHint />
           
-          <div className="grid gap-5 py-2">
+          <div inert={mutation.busy} className="grid gap-5 py-2">
             <div className={`grid grid-cols-${t.customTabName ? '3' : '2'} p-1 bg-muted rounded-lg`}>
                 <button type="button" onClick={() => setAccountType('individual')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'individual' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><User className="h-4 w-4" /> {institutionType === 'cami' ? 'Bireysel Bağışçı' : 'Şahıs'}</button>
                 <button type="button" onClick={() => setAccountType('corporate')} className={cn("flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all", accountType === 'corporate' ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground")}><Building2 className="h-4 w-4" /> {institutionType === 'cami' ? 'Kurumsal Bağışçı' : 'Kurum'}</button>
@@ -454,23 +485,29 @@ export default function AccountsPage() {
             )}
 
             <div className="border border-dashed p-4 rounded-lg bg-card/50">
-                <h4 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center justify-between"><span>Açılış Finansal Bilgileri</span><Select value={formData.currency} onValueChange={v => setFormData({...formData, currency: v})}><SelectTrigger className="w-[120px] h-8 text-xs bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TRY">TRY (₺)</SelectItem><SelectItem value="USD">USD ($)</SelectItem><SelectItem value="EUR">EUR (€)</SelectItem></SelectContent></Select></h4>
-                <div className="grid grid-cols-3 gap-3"><div className="space-y-1.5"><Label className="text-xs text-destructive">Açılış Borcu</Label><Input autoComplete="off" type="number" placeholder="0.00" value={formData.borc} onChange={e => setFormData({...formData, borc: e.target.value})} /></div><div className="space-y-1.5"><Label className="text-xs text-green-600">Açılış Alacağı</Label><Input autoComplete="off" type="number" placeholder="0.00" value={formData.alacak} onChange={e => setFormData({...formData, alacak: e.target.value})} /></div><div className="space-y-1.5"><Label className="text-xs text-primary font-bold">Açılış Bakiyesi</Label><Input autoComplete="off" type="number" className="font-bold bg-muted/50" placeholder="0.00" value={formData.bakiye} onChange={e => setFormData({...formData, bakiye: e.target.value})} /></div></div>
+                <h4 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center justify-between"><span>{editingId ? 'Güncel Finansal Bilgiler' : 'Açılış Finansal Bilgileri'}</span><Select value={formData.currency} onValueChange={v => setFormData({...formData, currency: v})}><SelectTrigger className="w-[120px] h-8 text-xs bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TRY">TRY (₺)</SelectItem><SelectItem value="USD">USD ($)</SelectItem><SelectItem value="EUR">EUR (€)</SelectItem></SelectContent></Select></h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5"><Label className="text-xs text-destructive">{editingId ? 'Güncel Borç' : 'Açılış Borcu'}</Label><Input autoComplete="off" type="number" placeholder="0.00" value={formData.borc} onChange={e => setFormData({...formData, borc: e.target.value})} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs text-green-600">{editingId ? 'Güncel Alacak' : 'Açılış Alacağı'}</Label><Input autoComplete="off" type="number" placeholder="0.00" value={formData.alacak} onChange={e => setFormData({...formData, alacak: e.target.value})} /></div>
+                  <div className="space-y-1.5"><Label className="text-xs text-primary font-bold">{editingId ? 'Net Bakiye' : 'Açılış Bakiyesi'}</Label><Input autoComplete="off" type="number" className="font-bold bg-muted/50" placeholder="0.00" value={formData.bakiye} onChange={e => setFormData({...formData, bakiye: e.target.value})} /></div>
+                </div>
+                {editingId && <p className="mt-2 text-xs text-muted-foreground">Bu tutarları doğrudan değiştirmeniz mevcut toplamlara yansır; hareket geçmişi değişmez. Yalnızca iletişim bilgilerini düzenlerseniz bakiyeler korunur.</p>}
             </div>
 
           </div>
-          <DialogFooter><Button onClick={handleSave} className="w-full sm:w-auto">{editingId ? "Güncelle" : "Kaydet"}</Button></DialogFooter>
+          <DialogFooter><Button disabled={mutation.disabled} onClick={handleSave} className="w-full sm:w-auto">{mutation.busy ? 'İşlem sürüyor…' : editingId ? "Güncelle" : "Kaydet"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showQuickAdd} onOpenChange={setShowQuickAdd}>
+      <Dialog open={showQuickAdd} onOpenChange={open => { if (open) setShowQuickAdd(true); else void closeOwnerForm(() => setShowQuickAdd(false)); }}>
           <DialogContent className="sm:max-w-[350px]">
               <DialogHeader><DialogTitle>Hızlı Sahip Ekle</DialogTitle></DialogHeader>
-              <div className="space-y-4 py-2">
+              <WriteSafetyHint />
+              <div inert={mutation.busy} className="space-y-4 py-2">
                   <div className="space-y-1.5"><Label>Ad Soyad</Label><Input autoComplete="off" placeholder="Sahip adı soyadı..." value={quickAddName} onChange={e => setQuickAddName(e.target.value)} autoFocus /></div>
                   <div className="space-y-1.5"><Label>Telefon</Label><Input autoComplete="off" placeholder="5XX XXX XX XX" value={quickAddPhone} onChange={e => setQuickAddPhone(e.target.value)} /></div>
               </div>
-              <DialogFooter><Button variant="outline" onClick={() => setShowQuickAdd(false)}>İptal</Button><Button onClick={handleQuickAdd}>Ekle ve Seç</Button></DialogFooter>
+              <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeOwnerForm(() => setShowQuickAdd(false))}>İptal</Button><Button disabled={mutation.disabled} onClick={handleQuickAdd}>{mutation.busy ? 'İşlem sürüyor…' : 'Ekle ve Seç'}</Button></DialogFooter>
           </DialogContent>
       </Dialog>
     </div>

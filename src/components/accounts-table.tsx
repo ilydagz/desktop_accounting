@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Eye, Plus, MoreHorizontal, User, Star, Building2, Search, ArrowUp, ArrowDown, Trash2, Phone, Calendar, Copy, Pencil, Filter, Wallet, Printer, ShieldCheck, Percent, Download, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,14 @@ import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
-import { addTransaction, getTransactionsByAccount, getAccounts } from "@/services/db"
+import { addTransaction, getTransactionsByAccount, getAccounts, getAccount, deleteTransaction } from "@/services/db"
+import { historyWithSnapshots, inspectAccount } from "@/lib/account-balance"
+import { useMutationLock } from "@/hooks/use-mutation-lock"
+import { confirmDuplicateSave } from "@/lib/confirm-duplicate"
+import { useActionSafety } from '@/contexts/ActionSafetyContext'
+import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
+import { ActionCancelledError } from '@/lib/action-safety'
+import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
 import { useAuth } from "@/contexts/AuthContext"
 import { save } from "@tauri-apps/plugin-dialog"
 import { writeFile } from "@tauri-apps/plugin-fs"
@@ -25,6 +32,8 @@ interface AccountsTableProps { data: Account[]; fullData: Account[]; onDelete: (
 export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: AccountsTableProps) {
   const { toast } = useToast()
   const { institutionType, institutionName } = useAuth()
+  const mutation = useMutationLock()
+  const { confirm, reportError, runWrite } = useActionSafety()
 
   const getAccountsSingleName = () => {
     switch(institutionType) {
@@ -60,6 +69,11 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [accountHistory, setAccountHistory] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [summaryWarnings, setSummaryWarnings] = useState<string[]>([])
+  const historyRequest = useRef(0)
+  useEffect(() => () => { historyRequest.current += 1; }, [])
 
   const [transactionAccount, setTransactionAccount] = useState<Account | null>(null)
   const [txMaturityDate, setTxMaturityDate] = useState("")
@@ -70,6 +84,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
   const [txDate, setTxDate] = useState("")
   const [txMethod, setTxMethod] = useState("Nakit")
   const [txType, setTxType] = useState<"tahsilat" | "odeme" | "faiz_isleme">("tahsilat")
+  const closeTxForm = useFormExitGuard(Boolean(transactionAccount), JSON.stringify([transactionAccount?.id, txMaturityDate, txInterestRate, txInterestType, txAmount, txDesc, txDate, txMethod, txType]), mutation.busy)
 
   const [historyStartDate, setHistoryStartDate] = useState("")
   const [historyEndDate, setHistoryEndDate] = useState("")
@@ -79,24 +94,18 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
   const copyPhone = (phone: string) => { navigator.clipboard.writeText(phone); toast({ title: "Kopyalandı", description: "Pano'ya alındı." }) }
 
   const loadAccountHistory = async (acc: Account) => {
+    const request = ++historyRequest.current;
+    setHistoryLoading(true); setHistoryError(''); setSummaryWarnings([]); setAccountHistory([]);
     try {
-      const history = await getTransactionsByAccount(acc.id);
-      let rBorc = acc.borc || 0;
-      let rAlacak = acc.alacak || 0;
-      let rBakiye = acc.bakiye || 0;
-
-      const enrichedHistory = history.map(tx => {
-        if (tx.type === 'tahsilat') {
-          rAlacak -= tx.amount;
-          rBakiye -= tx.amount;
-        } else {
-          rBorc -= tx.amount;
-          rBakiye += tx.amount;
-        }
-        return { ...tx, snapshot: { borc: rBorc, alacak: rAlacak, bakiye: Math.abs(rBakiye) } };
-      });
-      setAccountHistory(enrichedHistory);
-    } catch (e) { console.error(e); }
+      const [freshAccount, history] = await Promise.all([getAccount(acc.id), getTransactionsByAccount(acc.id)]);
+      if (request !== historyRequest.current) return;
+      setSelectedAccount(freshAccount);
+      setAccountHistory(historyWithSnapshots(freshAccount, history));
+      setSummaryWarnings(inspectAccount(freshAccount, history).reasons.filter(reason => !reason.includes('mükerrer')));
+    } catch (e) {
+      console.error(e);
+      if (request === historyRequest.current) setHistoryError('Hesap bilgileri ve geçmişin tamamı yüklenemedi. Tekrar deneyin; mevcut işlemleri yeniden girmeyin.');
+    } finally { if (request === historyRequest.current) setHistoryLoading(false); }
   }
 
   const handleViewDetails = async (account: Account) => {
@@ -108,8 +117,25 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
     setTxAmount(""); setTxDesc(""); setTxType("tahsilat"); setTxMethod("Nakit"); setTxDate(getLocalDatetime()); setTxMaturityDate(""); setTxInterestRate("0"); setTxInterestType("aylik");
   }
 
+  const handleDeleteHistory = async (tx: any) => {
+    if (!mutation.begin()) return;
+    try {
+      if (!await confirm({ title: 'Hareketi sil', description: 'Bu hareket ve varsa bağlı faiz hareketleri silinir. İşlem geri alınamaz.', details: [{ label: 'Hesap', value: selectedAccount?.name || '-' }, { label: 'Tarih', value: formatDate(tx.date) }, { label: 'Tutar', value: formatCurrency(tx.amount) }, { label: 'Açıklama', value: tx.description }], destructive: true, confirmLabel: 'Hareketi sil' })) return;
+      await runWrite(() => deleteTransaction(tx.id));
+      toast({ title: 'Silindi', description: 'Hareket silindi ve bakiye güncellemesi tamamlandı.' });
+      onRefresh();
+      if (selectedAccount) await loadAccountHistory(selectedAccount);
+    } catch (error) {
+      reportError(error);
+      toast({ title: 'Silme tamamlanamadı', description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: 'destructive' });
+      onRefresh();
+      if (selectedAccount) void loadAccountHistory(selectedAccount);
+    } finally { mutation.end(); }
+  }
+
   const handleTransactionSave = async () => {
     if (!txAmount || !transactionAccount) { toast({ title: "Hata", description: "Geçerli tutar giriniz.", variant: "destructive" }); return; }
+    if (!mutation.begin()) return;
     try {
       let finalAmount = parseFloat(txAmount);
       if (parseFloat(txInterestRate) > 0) {
@@ -124,10 +150,8 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
          }
       }
 
-      setTransactionAccount(null); 
-      toast({ title: "Başarılı", description: "İşlem Kaydedildi" })
-
-      await addTransaction({
+      if (!await confirm({ title: 'Kaydı kontrol edin', description: 'Hesabı, tarihi ve kaydedilecek tutarı kontrol edin. Onaylamadan kayıt gönderilmez.', details: [{ label: 'Hesap', value: `${transactionAccount.custom_code || 'Kodsuz'} — ${transactionAccount.name}` }, { label: 'İşlem', value: txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı' }, { label: 'Tarih', value: formatDate(txDate) }, { label: 'Kaydedilecek tutar', value: formatCurrency(finalAmount) }, { label: 'Yöntem', value: txMethod }, { label: 'Açıklama', value: txDesc || (txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı') }], confirmLabel: 'Kaydı onayla' })) return;
+      await confirmDuplicateSave(allowDuplicate => runWrite(() => addTransaction({
         accountId: transactionAccount.id.toString(),
         type: txType === 'faiz_isleme' as any ? 'odeme' : txType as any,
         amount: finalAmount,
@@ -138,7 +162,9 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         interest_rate: parseFloat(txInterestRate) || 0,
         interest_type: txInterestType,
         is_interest: txType === 'faiz_isleme' as any
-      });
+      }, allowDuplicate)), confirm);
+      setTransactionAccount(null);
+      toast({ title: "Başarılı", description: "İşlem Kaydedildi" });
 
       onRefresh();
 
@@ -147,7 +173,13 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
         if (freshAcc) { setSelectedAccount(freshAcc); await loadAccountHistory(freshAcc); }
       }
-    } catch (e) { toast({ title: "Hata", variant: "destructive" }) }
+    } catch (e) {
+      if (e instanceof ActionCancelledError) return;
+      reportError(e);
+      onRefresh();
+      if (selectedAccount) void loadAccountHistory(selectedAccount);
+      toast({ title: "İşlem tamamlanamadı", description: e instanceof Error ? e.message : 'Yeniden deneyin.', variant: "destructive" });
+    } finally { mutation.end(); }
   }
 
   const handlePrintHistory = () => {
@@ -520,7 +552,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         </Table>
       </div>
 
-      <Sheet open={!!selectedAccount} onOpenChange={(open) => !open && setSelectedAccount(null)}>
+      <Sheet open={!!selectedAccount} onOpenChange={(open) => { if (!open && !mutation.busy) { historyRequest.current += 1; setSelectedAccount(null); } }}>
         <SheetContent className="sm:max-w-[600px] w-full overflow-y-auto">
           {selectedAccount && (
             <div className="space-y-6 mt-6">
@@ -545,20 +577,21 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              {historyLoading ? <p role="status" className="text-sm">Güncel hesap bilgileri yükleniyor…</p> : historyError ? <div role="alert" className="rounded-lg border border-destructive p-3 text-sm"><p>{historyError}</p><Button variant="outline" className="mt-2" onClick={() => void loadAccountHistory(selectedAccount)}>Tekrar dene</Button></div> : <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl border bg-card shadow-sm text-center"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Toplam Borç</span><div className="text-lg font-bold text-destructive mt-1">{formatCurrency(selectedAccount.borc)}</div></div>
                 <div className="p-3 rounded-xl border bg-card shadow-sm text-center"><span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Toplam Alacak</span><div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(selectedAccount.alacak)}</div></div>
                 <div className="p-3 rounded-xl border bg-primary/10 shadow-sm text-center"><span className="text-[10px] font-bold text-primary uppercase flex justify-center gap-1"><Wallet className="h-3 w-3" /> Net Bakiye</span><div className="text-lg font-bold text-primary mt-1">{formatCurrency(Math.abs(selectedAccount.bakiye || 0))}</div></div>
-              </div>
+              </div>}
+              {!historyLoading && summaryWarnings.length > 0 && <div role="alert" className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"><p className="font-semibold">Bu hesabın toplamları kontrol edilmeli.</p><p>Geçmiş kayıtları yeniden girmeyin. Hızlı Bakış sayfasından Hesap Kontrolü raporunu alın; açılış ve varsa düzeltme tutarları ayrıca doğrulanmalıdır.</p></div>}
 
               <div>
                 <div className="flex items-center justify-between mb-3 border-b pb-2 mt-2">
                   <h4 className="font-semibold flex items-center gap-2"><Calendar className="h-4 w-4" /> Hesap Ekstresi</h4>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handlePrintHistory} className="h-8 gap-1.5"><Printer className="h-3.5 w-3.5" /> Yazdır</Button>
+                    <Button variant="outline" size="sm" disabled={historyLoading || Boolean(historyError)} onClick={handlePrintHistory} className="h-8 gap-1.5"><Printer className="h-3.5 w-3.5" /> Yazdır</Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-8 px-2"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
+                        <Button variant="outline" size="sm" disabled={historyLoading || Boolean(historyError)} className="h-8 px-2"><MoreHorizontal className="h-3.5 w-3.5" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={handleDownloadPdf}>
@@ -583,7 +616,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                 </div>
 
                 <div className="space-y-3">
-                  {displayedHistory.length === 0 ? (
+                  {historyLoading || historyError ? null : displayedHistory.length === 0 ? (
                     <div className="text-sm text-center py-4 border rounded-lg border-dashed text-muted-foreground">İşlem bulunamadı.</div>
                   ) : (
                     displayedHistory.map((tx, i) => {
@@ -610,28 +643,10 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                                 variant="ghost" 
                                 size="sm" 
                                 className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10"
-                                onClick={async (e) => {
+                                disabled={mutation.disabled}
+                                onClick={(e) => {
                                   e.stopPropagation();
-                                  if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Bakiye onarılacaktır)")) {
-                                    try {
-                                      setAccountHistory(prev => prev.filter(item => item.id !== tx.id));
-                                      toast({ title: "Silindi", description: "İşlem başarıyla silindi ve bakiyeler güncellendi." });
-                                      
-                                      const { deleteTransaction } = await import("@/services/db");
-                                      await deleteTransaction(tx.id);
-                                      
-                                      onRefresh();
-                                      if (selectedAccount) {
-                                        const { getAccounts } = await import("@/services/db");
-                                        const freshAccounts = await getAccounts();
-                                        const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
-                                        if (freshAcc) { setSelectedAccount(freshAcc); await loadAccountHistory(freshAcc); }
-                                      }
-                                    } catch (err: any) {
-                                      toast({ title: "Hata", description: err?.message || "İşlem silinirken bir hata oluştu.", variant: "destructive" });
-                                      onRefresh();
-                                    }
-                                  }
+                                  void handleDeleteHistory(tx);
                                 }}
                               >
                                 <Trash2 className="h-3 w-3 mr-1" /> Sil
@@ -662,10 +677,11 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
       {/* İŞLEM MODALI (ARTı İKONU İLE AÇILAN) */}
       {transactionAccount && (
-        <Dialog open={!!transactionAccount} onOpenChange={(open) => !open && setTransactionAccount(null)}>
+      <Dialog open={!!transactionAccount} onOpenChange={(open) => { if (!open) void closeTxForm(() => setTransactionAccount(null)); }}>
           <DialogContent className="sm:max-w-[450px]">
             <DialogHeader><DialogTitle>Yeni İşlem Ekle</DialogTitle><DialogDescription className="font-semibold text-primary">{transactionAccount.name}</DialogDescription></DialogHeader>
-            <div className="grid gap-4 py-4">
+            <WriteSafetyHint />
+            <div inert={mutation.busy} className="grid gap-4 py-4">
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => setTxType('tahsilat')} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border-2 transition-all ${txType === 'tahsilat' ? 'border-green-600 bg-green-50 text-green-700' : 'border-muted opacity-60 hover:opacity-100'}`}><ArrowUp className="h-4 w-4" /><span className="text-xs font-bold">Tahsilat (Al)</span></button>
                 <button onClick={() => setTxType('odeme')} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border-2 transition-all ${txType === 'odeme' ? 'border-destructive bg-red-50 text-destructive' : 'border-muted opacity-60 hover:opacity-100'}`}><ArrowDown className="h-4 w-4" /><span className="text-xs font-bold">Ödeme (Ver)</span></button>
@@ -721,7 +737,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                 <div className="space-y-1"><Label>Açıklama</Label><Input autoComplete="off" value={txDesc} onChange={e => setTxDesc(e.target.value)} placeholder={txType === 'tahsilat' ? 'Örn: Nakit tahsilat' : 'Örn: Malzeme ödemesi'} /></div>
               </div>
             </div>
-            <DialogFooter><Button variant="outline" onClick={() => setTransactionAccount(null)}>İptal</Button><Button onClick={handleTransactionSave}>İşlemi Kaydet</Button></DialogFooter>
+            <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeTxForm(() => setTransactionAccount(null))}>İptal</Button><Button disabled={mutation.disabled} onClick={handleTransactionSave}>{mutation.busy ? 'İşlem sürüyor…' : 'İşlemi Kaydet'}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       )}

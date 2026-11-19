@@ -13,9 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
-import { addTransaction, deleteTransaction, updateTransactionPaidStatus, addTransactionToMultipleAccounts } from "@/services/db"
+import { addTransaction, deleteTransaction, updateTransactionPaidStatus, addTransactionToMultipleAccounts, validateTransactionEdit } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
 import { useData } from "@/contexts/DataContext"
+import { useMutationLock } from "@/hooks/use-mutation-lock"
+import { confirmDuplicateSave } from "@/lib/confirm-duplicate"
+import { useActionSafety } from '@/contexts/ActionSafetyContext'
+import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
+import { ActionCancelledError, WriteOutcomeError } from '@/lib/action-safety'
+import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
 
 function formatCurrency(amount: number): string { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount) }
 function formatDateTime(dateString: string): string { const d = new Date(dateString); return d.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" }) + " " + d.toLocaleTimeString("tr-TR", { hour: '2-digit', minute: '2-digit' }); }
@@ -29,7 +35,9 @@ interface Transaction { id: string; account_id?: string; accountId?: string; acc
 export default function TransactionsPage() {
   const { toast } = useToast()
   const { institutionType } = useAuth()
-  const { transactions, setTransactions, accounts, ledgers, refreshData } = useData()
+  const { transactions, accounts, ledgers, refreshData } = useData()
+  const mutation = useMutationLock()
+  const { confirm, reportError, runWrite } = useActionSafety()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<"all" | "tahsilat" | "odeme">("all")
@@ -53,6 +61,8 @@ export default function TransactionsPage() {
   const [interestResult, setInterestResult] = useState({ days: 0, amount: 0 })
   const [interestApplyMode, setInterestApplyMode] = useState<"genel" | "tekil">("genel")
   const [applyToAll, setApplyToAll] = useState(false)
+  const closeTxForm = useFormExitGuard(isModalOpen, JSON.stringify({ formData, applyToAll, txType, editingTxId }), mutation.busy)
+  const closeInterestForm = useFormExitGuard(interestModalOpen, JSON.stringify({ interestApplyMode, id: selectedTxForInterest?.id }), mutation.busy)
 
   const getAccruedInterest = (tx: Transaction) => {
     if (!tx.maturity_date || !tx.interest_rate || tx.is_paid || tx.is_interest) return 0;
@@ -89,6 +99,7 @@ export default function TransactionsPage() {
   }
 
   const openEditTxModal = (tx: Transaction) => {
+      setApplyToAll(false);
       setEditingTxId(tx.id); setTxType(tx.type);
       setFormData({
           accountId: (tx.account_id || tx.accountId || "").toString(),
@@ -103,6 +114,7 @@ export default function TransactionsPage() {
   const handleSave = async () => {
       if (!applyToAll && !formData.accountId) { toast({ title: "Hata", description: `Lütfen ${tSingle.toLowerCase()} seçiniz.`, variant: "destructive" }); return; }
       if (!formData.amount) { toast({ title: "Hata", description: "Lütfen tutar giriniz.", variant: "destructive" }); return; }
+      if (!mutation.begin()) return;
       try {
           let finalAmount = parseFloat(formData.amount);
           if (parseFloat(formData.interestRate) > 0) {
@@ -129,51 +141,73 @@ export default function TransactionsPage() {
               is_interest: txType === 'faiz_isleme'
           };
 
+          const targets = applyToAll ? visibleAccounts : accounts.filter(account => account.id.toString() === formData.accountId);
+          if (!await confirm({
+            title: applyToAll ? 'Toplu işlemi kontrol edin' : editingTxId ? 'İşlem değişikliğini kontrol edin' : 'Kaydı kontrol edin',
+            description: applyToAll ? `Bu kayıt ${targets.length} hesabın her birine uygulanacak. Hesap listesini ve hesap başına tutarı kontrol edin.` : 'Hesap, tarih ve kaydedilecek tutarı kontrol edin. Onaylamadan kayıt gönderilmez.',
+            details: [
+              { label: applyToAll ? 'Hedef hesaplar' : 'Hesap', value: targets.map(account => `${account.custom_code || 'Kodsuz'} — ${account.name}`).join('\n') || 'Seçilmedi' },
+              { label: 'İşlem', value: txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı' },
+              { label: 'Tarih', value: formatDateTime(txData.date) },
+              { label: applyToAll ? 'Hesap başına tutar' : 'Kaydedilecek tutar', value: formatCurrency(txData.amount) },
+              { label: 'Kasa / banka', value: ledgers.find(ledger => ledger.id === txData.ledgerId)?.name || 'Kasa/banka seçilmedi' },
+              { label: 'Açıklama', value: txData.description },
+            ],
+            acknowledgement: applyToAll ? 'Listelenen hesapların tamamını ve hesap başına tutarı kontrol ettim.' : undefined,
+            confirmLabel: editingTxId ? 'Değişikliği kaydet' : 'Kaydı onayla',
+          })) return;
+
           if (applyToAll) {
               const activeAccIds = visibleAccounts.map(a => a.id.toString());
-              setIsModalOpen(false);
-              toast({ title: "Başarılı", description: `${activeAccIds.length} hesaba başarıyla işlendi.` }) 
-              await addTransactionToMultipleAccounts(activeAccIds, txData);
-              refreshData();
+              await confirmDuplicateSave(allowDuplicate => runWrite(() => addTransactionToMultipleAccounts(activeAccIds, txData, allowDuplicate)), confirm);
+              toast({ title: "Başarılı", description: `${activeAccIds.length} hesaba başarıyla işlendi.` });
           } else {
-              const accountName = accounts.find(a => a.id.toString() === txData.accountId)?.name || "";
-              const ledgerName = ledgers.find(l => l.id.toString() === txData.ledgerId)?.name || "";
-              const tempTx: any = { id: "temp-" + Date.now(), ...txData, accountName, ledgerName };
-              
               if (editingTxId) { 
-                setTransactions(prev => prev.map(t => t.id === editingTxId ? { ...t, ...tempTx, id: editingTxId } : t));
-                setIsModalOpen(false);
-                toast({ title: "Güncellendi" }) 
-                await deleteTransaction(editingTxId);
-                await addTransaction(txData);
-                refreshData();
+                await runWrite(async () => {
+                  await validateTransactionEdit(editingTxId, txData);
+                  await deleteTransaction(editingTxId);
+                  try { await addTransaction(txData); }
+                  catch { throw new WriteOutcomeError('Düzenleme tamamlanamadı; kaydın bir kısmı değişmiş olabilir. Yeniden göndermeden önce Hesap Kontrolü raporunu inceleyin.', 'partial'); }
+                });
+                toast({ title: "Güncellendi" });
               } 
               else { 
-                setTransactions(prev => [tempTx, ...prev]);
-                setIsModalOpen(false);
-                toast({ title: "Başarılı" }) 
-                await addTransaction(txData);
-                refreshData();
+                await confirmDuplicateSave(allowDuplicate => runWrite(() => addTransaction(txData, allowDuplicate)), confirm);
+                toast({ title: "Başarılı" });
               }
           }
-      } catch (error) { toast({ title: "Hata", variant: "destructive" }) }
+          setIsModalOpen(false);
+          await refreshData();
+      } catch (error) {
+          if (error instanceof ActionCancelledError) return;
+          reportError(error);
+          void refreshData();
+          toast({ title: "İşlem tamamlanamadı", description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" });
+      } finally { mutation.end(); }
   }
 
   const handleMarkAsPaid = async (txId: string) => {
-      try { await updateTransactionPaidStatus(txId, true); await loadData(); toast({ title: "Ödendi İşaretlendi", description: "Bu işlem için artık faiz hesaplanmayacak." }) }
-      catch (error) { toast({ title: "Hata", variant: "destructive" }) }
+      if (!mutation.begin()) return;
+      try {
+        const tx = transactions.find(item => item.id === txId);
+        if (!tx || !await confirm({ title: 'Ödendi olarak işaretle', description: 'Bu hareket için faiz hesaplanması duracak. Ödeme durumunu kontrol edin.', details: [{ label: 'Hesap', value: tx.accountName || '-' }, { label: 'Tarih', value: formatDateTime(tx.date) }, { label: 'Hareket', value: tx.description }, { label: 'Tutar', value: formatCurrency(tx.amount) }], confirmLabel: 'Ödendi olarak işaretle' })) return;
+        await runWrite(() => updateTransactionPaidStatus(txId, true)); await loadData(); toast({ title: "Ödendi İşaretlendi", description: "Bu işlem için artık faiz hesaplanmayacak." });
+      }
+      catch (error) { reportError(error); toast({ title: "Hata", description: error instanceof Error ? error.message : 'İşlem tamamlanamadı.', variant: "destructive" }); void refreshData(); }
+      finally { mutation.end(); }
   }
 
   const handleDelete = async (txId: string) => {
-      if (window.confirm("Bu işlemi silmek istediğinize emin misiniz? (Bakiye onarılacaktır)")) {
+          if (!mutation.begin()) return;
           try { 
-              setTransactions(prev => prev.filter(t => t.id !== txId));
+              const tx = transactions.find(item => item.id === txId);
+              if (!tx || !await confirm({ title: 'Hareketi sil', description: 'Bu hareket ve varsa bağlı faiz hareketleri silinir. İşlem geri alınamaz.', details: [{ label: 'Hesap', value: tx.accountName || '-' }, { label: 'Tarih', value: formatDateTime(tx.date) }, { label: 'Tutar', value: formatCurrency(tx.amount) }, { label: 'Açıklama', value: tx.description }], destructive: true, confirmLabel: 'Hareketi sil' })) return;
+              await runWrite(() => deleteTransaction(txId));
               toast({ title: "Silindi" });
-              await deleteTransaction(txId); 
-              refreshData(); 
+              await refreshData();
           } 
-          catch (error) { toast({ title: "Hata", variant: "destructive" }) }
-      }
+          catch (error) { reportError(error); toast({ title: "Silme tamamlanamadı", description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" }); void refreshData(); }
+          finally { mutation.end(); }
   }
 
   const handleMethodChange = (v: string) => {
@@ -331,14 +365,16 @@ export default function TransactionsPage() {
 
   const applyInterest = async () => {
       if (!selectedTxForInterest) return;
+      if (!mutation.begin()) return;
       try {
           const accId = selectedTxForInterest.account_id || selectedTxForInterest.accountId;
           if (!accId) return;
+          if (!await confirm({ title: 'Faiz kaydını kontrol edin', description: 'Aşağıda mevcut faiz kuralıyla hesaplanan ve kaydedilecek tutar gösteriliyor.', details: [{ label: 'Hesap', value: selectedTxForInterest.accountName || accounts.find(account => account.id === accId)?.name || '-' }, { label: 'İlgili hareket', value: selectedTxForInterest.description }, { label: 'Geciken gün', value: String(interestResult.days) }, { label: 'Kaydedilecek tutar', value: formatCurrency(interestResult.amount) }], confirmLabel: 'Faiz kaydını onayla' })) return;
 
           if (interestApplyMode === "genel" || interestApplyMode === "tekil") {
               // Create a new transaction representing the interest. It acts as an 'odeme' (debt increase for the customer).
               // Tekil is just a visual grouping (parent_id) we can use later.
-              await addTransaction({
+              await confirmDuplicateSave(allowDuplicate => runWrite(() => addTransaction({
                   accountId: accId.toString(),
                   type: 'odeme', // Borçlandırma
                   amount: interestResult.amount,
@@ -349,14 +385,17 @@ export default function TransactionsPage() {
                   // @ts-ignore
                   is_interest: true,
                   parent_id: interestApplyMode === "tekil" ? selectedTxForInterest.id : undefined
-              });
+              }, allowDuplicate)), confirm);
               toast({ title: "Başarılı", description: "Faiz hesaba yansıtıldı." });
           }
           await loadData();
           setInterestModalOpen(false);
       } catch (e) {
-          toast({ title: "Hata", variant: "destructive" });
-      }
+          if (e instanceof ActionCancelledError) return;
+          reportError(e);
+          toast({ title: "İşlem tamamlanamadı", description: e instanceof Error ? e.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" });
+          void refreshData();
+      } finally { mutation.end(); }
   }
 
   return (
@@ -377,10 +416,11 @@ export default function TransactionsPage() {
       </SelectContent></Select></div>
       <div className="grid gap-4 md:grid-cols-3"><Card className="bg-destructive/5 border-destructive/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-destructive"><TrendingDown className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasadan Alacak (Borçlar)" : "Müşterinin Borcu"}</h3></div><div className="text-3xl font-bold text-destructive">{formatCurrency(displayBorc)}</div></CardContent></Card><Card className="bg-green-600/5 border-green-600/20 transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-green-700"><TrendingUp className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Piyasaya Borç (Alacaklar)" : "Müşterinin Alacağı"}</h3></div><div className="text-3xl font-bold text-green-700">{formatCurrency(displayAlacak)}</div></CardContent></Card><Card className="bg-primary/5 border-primary/20 shadow-sm transition-all"><CardContent className="p-6"><div className="flex items-center gap-2 mb-2 text-primary"><Wallet className="h-5 w-5" /><h3 className="font-semibold text-sm uppercase tracking-wider">{selectedAccountId === "all" ? "Genel Net Bakiye" : "Kişisel Net Bakiye"}</h3></div><div className={`text-3xl font-bold ${displayBakiye >= 0 ? 'text-primary' : 'text-destructive'}`}>{formatCurrency(Math.abs(displayBakiye))} <span className="text-xs font-bold">{displayBakiye > 0 ? '(ALACAKLIYIZ)' : displayBakiye < 0 ? '(BORÇLUYUZ)' : ''}</span></div></CardContent></Card></div>
 
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog open={isModalOpen} onOpenChange={open => { if (open) setIsModalOpen(true); else void closeTxForm(() => setIsModalOpen(false)); }}>
         <DialogContent className="sm:max-w-[550px]">
           <DialogHeader><DialogTitle>{editingTxId ? "İşlemi Düzenle" : "Yeni İşlem Ekle"}</DialogTitle><DialogDescription>{editingTxId ? "İşlem bilgilerini değiştirin." : "Listeye manuel olarak yeni bir gelir veya gider ekleyin."}</DialogDescription></DialogHeader>
-          <div className="grid gap-5 py-2">
+          <WriteSafetyHint />
+          <div inert={mutation.busy} className="grid gap-5 py-2">
               <div className="grid grid-cols-3 gap-2">
                 <button type="button" onClick={() => setTxType('tahsilat')} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border-2 transition-all ${txType === 'tahsilat' ? 'border-green-600 bg-green-50 text-green-700' : 'border-muted hover:border-green-200 text-muted-foreground'}`}><ArrowUp className={`h-5 w-5 ${txType === 'tahsilat' ? 'text-green-600' : ''}`} /><span className="font-semibold text-xs">Tahsilat (Al)</span></button>
                 <button type="button" onClick={() => setTxType('odeme')} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border-2 transition-all ${txType === 'odeme' ? 'border-destructive bg-red-50 text-destructive' : 'border-muted hover:border-red-200 text-muted-foreground'}`}><ArrowDown className={`h-5 w-5 ${txType === 'odeme' ? 'text-destructive' : ''}`} /><span className="font-semibold text-xs">Ödeme (Ver)</span></button>
@@ -495,14 +535,15 @@ export default function TransactionsPage() {
                   <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right font-medium">Açıklama</Label><Input className="col-span-3" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} /></div>
               </div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setIsModalOpen(false)}>İptal</Button><Button onClick={handleSave} className={txType === 'tahsilat' ? 'bg-green-600 hover:bg-green-700' : 'bg-destructive hover:bg-destructive/90'}>{editingTxId ? 'Güncelle' : (txType === 'tahsilat' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet')}</Button></DialogFooter>
+          <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeTxForm(() => setIsModalOpen(false))}>İptal</Button><Button disabled={mutation.disabled} onClick={handleSave} className={txType === 'tahsilat' ? 'bg-green-600 hover:bg-green-700' : 'bg-destructive hover:bg-destructive/90'}>{mutation.busy ? 'İşlem sürüyor…' : editingTxId ? 'Güncelle' : (txType === 'tahsilat' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet')}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={interestModalOpen} onOpenChange={setInterestModalOpen}>
+      <Dialog open={interestModalOpen} onOpenChange={open => { if (open) setInterestModalOpen(true); else void closeInterestForm(() => setInterestModalOpen(false)); }}>
           <DialogContent>
               <DialogHeader><DialogTitle>Faiz / Gecikme Zammı Hesapla</DialogTitle><DialogDescription>Vadesi geçmiş işlem için gecikme faizi hesaplanıyor.</DialogDescription></DialogHeader>
-              <div className="space-y-4 py-4">
+              <WriteSafetyHint />
+              <div inert={mutation.busy} className="space-y-4 py-4">
                   <div className="bg-muted p-4 rounded-lg space-y-2 text-sm">
                       <div className="flex justify-between"><span>İşlem Tutarı:</span><span className="font-semibold">{formatCurrency(selectedTxForInterest?.amount || 0)}</span></div>
                       <div className="flex justify-between"><span>Vade Tarihi:</span><span>{selectedTxForInterest?.maturity_date ? new Date(selectedTxForInterest.maturity_date).toLocaleDateString('tr-TR') : '-'}</span></div>
@@ -524,7 +565,7 @@ export default function TransactionsPage() {
                       </RadioGroup>
                   </div>
               </div>
-              <DialogFooter><Button variant="outline" onClick={() => setInterestModalOpen(false)}>İptal</Button><Button onClick={applyInterest} className="bg-destructive hover:bg-destructive/90">Faizi İşle ({formatCurrency(interestResult.amount)})</Button></DialogFooter>
+              <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeInterestForm(() => setInterestModalOpen(false))}>İptal</Button><Button disabled={mutation.disabled} onClick={applyInterest} className="bg-destructive hover:bg-destructive/90">{mutation.busy ? 'İşlem sürüyor…' : `Faizi İşle (${formatCurrency(interestResult.amount)})`}</Button></DialogFooter>
           </DialogContent>
       </Dialog>
 

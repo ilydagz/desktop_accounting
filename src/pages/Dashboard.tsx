@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Wallet, ArrowUp, ArrowDown, Activity, Search, AlertCircle, CheckCircle2, Users, ArrowRightLeft } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Button } from "@/components/ui/button"
+import { BalanceAuditDialog } from "@/components/BalanceAuditDialog"
 import { Input } from "@/components/ui/input"
 // removed unused import
 import { useAuth } from "@/contexts/AuthContext"
@@ -154,25 +154,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">{tTitle} hesap durumlarını hızlıca sorgulayın ve son işlemleri izleyin.</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="text-orange-600 border-orange-200 bg-orange-50 hover:bg-orange-100"
-            onClick={async () => {
-              if (window.confirm("DİKKAT: Bu işlem tüm hesap ve kasa bakiyelerini mevcut işlemlere göre baştan hesaplayacaktır. Geçmişteki silme hatalarından kaynaklı bozuk bakiyeleri (ekside kalan hesapları vs.) onarmak içindir. Onaylıyor musunuz?")) {
-                try {
-                  const { recalculateAllBalances } = await import("@/services/db");
-                  await recalculateAllBalances();
-                  alert("Bakiyeler başarıyla onarıldı! Sayfa yenileniyor...");
-                  window.location.reload();
-                } catch (error: any) {
-                  alert("Hata oluştu: " + error.message);
-                }
-              }
-            }}
-          >
-            <AlertCircle className="h-4 w-4 mr-2" /> Bozuk Bakiyeleri Onar
-          </Button>
+          <BalanceAuditDialog />
         </div>
       </div>
 

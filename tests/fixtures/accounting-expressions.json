@@ -1,0 +1,133 @@
+{
+  "revision": "926ae07",
+  "files": {
+    "src/pages/TransactionsPage.tsx": [
+      [
+        "diffTime",
+        "today.getTime() - maturity.getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ],
+      [
+        "dailyRate",
+        "tx.interest_type === 'yillik' ? tx.interest_rate / 365 / 100 : tx.interest_rate / 30 / 100"
+      ],
+      [
+        "finalAmount",
+        "parseFloat(formData.amount)"
+      ],
+      [
+        "principal",
+        "parseFloat(formData.amount)"
+      ],
+      [
+        "dailyRate",
+        "formData.interestType === 'yillik' ? parseFloat(formData.interestRate) / 365 / 100 : parseFloat(formData.interestRate) / 30 / 100"
+      ],
+      [
+        "diffTime",
+        "new Date().getTime() - new Date(formData.maturityDate).getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ],
+      [
+        "finalAmount=",
+        "parseFloat((principal * dailyRate * diffDays).toFixed(2))"
+      ],
+      [
+        "finalAmount=",
+        "parseFloat((principal * (parseFloat(formData.interestRate) / 100)).toFixed(2))"
+      ],
+      [
+        "diffTime",
+        "today.getTime() - maturity.getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ],
+      [
+        "dailyRate",
+        "0"
+      ],
+      [
+        "interestAmount",
+        "tx.amount * dailyRate * diffDays"
+      ],
+      [
+        "principal",
+        "parseFloat(formData.amount)"
+      ],
+      [
+        "diffTime",
+        "today.getTime() - maturity.getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ],
+      [
+        "dailyRate",
+        "formData.interestType === 'yillik' ? parseFloat(formData.interestRate) / 365 / 100 : parseFloat(formData.interestRate) / 30 / 100"
+      ]
+    ],
+    "src/components/accounts-table.tsx": [
+      [
+        "finalAmount",
+        "parseFloat(txAmount)"
+      ],
+      [
+        "principal",
+        "parseFloat(txAmount)"
+      ],
+      [
+        "dailyRate",
+        "txInterestType === 'yillik' ? parseFloat(txInterestRate) / 365 / 100 : parseFloat(txInterestRate) / 30 / 100"
+      ],
+      [
+        "diffTime",
+        "new Date().getTime() - new Date(txMaturityDate).getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ],
+      [
+        "finalAmount=",
+        "parseFloat((principal * dailyRate * diffDays).toFixed(2))"
+      ],
+      [
+        "finalAmount=",
+        "parseFloat((principal * (parseFloat(txInterestRate) / 100)).toFixed(2))"
+      ],
+      [
+        "netFark",
+        "(account.borc || 0) - (account.alacak || 0)"
+      ],
+      [
+        "netFark",
+        "(account.borc || 0) - (account.alacak || 0)"
+      ],
+      [
+        "principal",
+        "parseFloat(txAmount)"
+      ],
+      [
+        "dailyRate",
+        "txInterestType === 'yillik' ? parseFloat(txInterestRate) / 365 / 100 : parseFloat(txInterestRate) / 30 / 100"
+      ],
+      [
+        "diffTime",
+        "new Date().getTime() - new Date(txMaturityDate).getTime()"
+      ],
+      [
+        "diffDays",
+        "Math.ceil(diffTime / (1000 * 60 * 60 * 24))"
+      ]
+    ]
+  }
+}

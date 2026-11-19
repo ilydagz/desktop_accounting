@@ -14,9 +14,12 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
 import { useAuth } from "@/contexts/AuthContext"
+import { useSyncExternalStore } from 'react'
+import { mutationCoordinator } from '@/lib/mutation-coordinator'
 
 
 export function AppSidebar() {
+  const writeBusy = useSyncExternalStore(mutationCoordinator.subscribe, mutationCoordinator.snapshot, mutationCoordinator.snapshot).owner !== null
   const navigate = useNavigate()
   const location = useLocation()
   const pathname = location.pathname
@@ -81,7 +84,7 @@ export function AppSidebar() {
   }
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" onClickCapture={event => { if (writeBusy) { event.preventDefault(); event.stopPropagation(); } }}>
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex items-center gap-2 px-1 group-data-[collapsible=icon]:justify-center">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
