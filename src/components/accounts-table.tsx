@@ -187,7 +187,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
             .summary-box { border: 1px solid #ddd; padding: 15px; border-radius: 8px; width: 30%; text-align: center; }
             .summary-box.balance { background-color: #f8fafc; font-weight: bold; border-color: #cbd5e1; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 13px; }
+            th, td { border: 1px solid #ddd; padding: 4px 10px; text-align: left; font-size: 13px; }
             th { background-color: #f1f5f9; }
             .text-right { text-align: right; }
             .text-red { color: #dc2626; }
@@ -318,7 +318,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
       
       const html = document.createElement('div');
       const chronologicalHistory = [...displayedHistory].reverse();
-      const transactionsHtml = chronologicalHistory.map(tx => `<tr><td style="padding: 5px; border: 1px solid #ddd;">${formatDate(tx.date)}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.description}</td><td style="padding: 5px; border: 1px solid #ddd;">${tx.method || 'Nakit'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'odeme' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'tahsilat' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: right;">${formatCurrency(Math.abs(tx.snapshot.bakiye || 0))}</td><td style="padding: 5px; border: 1px solid #ddd; text-align: center;">${(tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-'}</td></tr>`).join('');
+      const transactionsHtml = chronologicalHistory.map(tx => `<tr><td style="padding: 4px 5px; border: 1px solid #ddd;">${formatDate(tx.date)}</td><td style="padding: 4px 5px; border: 1px solid #ddd;">${tx.description}</td><td style="padding: 4px 5px; border: 1px solid #ddd;">${tx.method || 'Nakit'}</td><td style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'odeme' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">${tx.type === 'tahsilat' ? formatCurrency(tx.amount) : '-'}</td><td style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">${formatCurrency(Math.abs(tx.snapshot.bakiye || 0))}</td><td style="padding: 4px 5px; border: 1px solid #ddd; text-align: center;">${(tx.snapshot.borc || 0) > (tx.snapshot.alacak || 0) ? 'BORÇLU' : (tx.snapshot.borc || 0) < (tx.snapshot.alacak || 0) ? 'ALACAKLI' : '-'}</td></tr>`).join('');
       
       html.innerHTML = `
         <div style="font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #333;">
@@ -331,7 +331,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
             ${(historyStartDate || historyEndDate) ? `<div style="text-align: left; font-weight: bold; margin-top:5px; color:#ef4444; font-size: 11px;">Filtre: ${historyStartDate || 'Başlangıç'} - ${historyEndDate || 'Bugün'}</div>` : ''}
           </div>
           <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-            <thead style="background-color: #f1f5f9;"><tr><th style="padding: 5px; border: 1px solid #ddd;">Tarih</th><th style="padding: 5px; border: 1px solid #ddd;">Açıklama</th><th style="padding: 5px; border: 1px solid #ddd;">Yöntem</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Borç</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Alacak</th><th style="padding: 5px; border: 1px solid #ddd; text-align: right;">Genel Bakiye</th><th style="padding: 5px; border: 1px solid #ddd; text-align: center;">Durum</th></tr></thead>
+            <thead style="background-color: #f1f5f9;"><tr><th style="padding: 4px 5px; border: 1px solid #ddd;">Tarih</th><th style="padding: 4px 5px; border: 1px solid #ddd;">Açıklama</th><th style="padding: 4px 5px; border: 1px solid #ddd;">Yöntem</th><th style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">Borç</th><th style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">Alacak</th><th style="padding: 4px 5px; border: 1px solid #ddd; text-align: right;">Genel Bakiye</th><th style="padding: 4px 5px; border: 1px solid #ddd; text-align: center;">Durum</th></tr></thead>
             <tbody>${transactionsHtml || '<tr><td colspan="7" style="text-align:center; padding: 10px;">Kayıt bulunamadı.</td></tr>'}</tbody>
           </table>
         </div>

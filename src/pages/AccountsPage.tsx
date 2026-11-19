@@ -129,7 +129,7 @@ export default function AccountsPage() {
             .header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
             h1 { font-size: 24px; margin: 0 0 5px 0; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 13px; }
+            th, td { border: 1px solid #ddd; padding: 4px 10px; text-align: left; font-size: 13px; }
             th { background-color: #f1f5f9; }
             .text-right { text-align: right; }
             .font-bold { font-weight: bold; }
