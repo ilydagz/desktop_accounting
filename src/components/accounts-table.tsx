@@ -11,13 +11,10 @@ import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
-import { addTransaction, getTransactionsByAccount, getAccounts, getAccount, deleteTransaction } from "@/services/db"
+import { addTransaction, getTransactionsByAccount, getAccount, deleteTransaction } from "@/services/db"
 import { historyWithSnapshots, inspectAccount } from "@/lib/account-balance"
 import { useMutationLock } from "@/hooks/use-mutation-lock"
-import { confirmDuplicateSave } from "@/lib/confirm-duplicate"
 import { useActionSafety } from '@/contexts/ActionSafetyContext'
-import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
-import { ActionCancelledError } from '@/lib/action-safety'
 import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
 import { useAuth } from "@/contexts/AuthContext"
 import { save } from "@tauri-apps/plugin-dialog"
@@ -33,7 +30,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
   const { toast } = useToast()
   const { institutionType, institutionName } = useAuth()
   const mutation = useMutationLock()
-  const { confirm, reportError, runWrite } = useActionSafety()
+  const { reportError, runWrite } = useActionSafety()
 
   const getAccountsSingleName = () => {
     switch(institutionType) {
@@ -84,7 +81,6 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
   const [txDate, setTxDate] = useState("")
   const [txMethod, setTxMethod] = useState("Nakit")
   const [txType, setTxType] = useState<"tahsilat" | "odeme" | "faiz_isleme">("tahsilat")
-  const closeTxForm = useFormExitGuard(Boolean(transactionAccount), JSON.stringify([transactionAccount?.id, txMaturityDate, txInterestRate, txInterestType, txAmount, txDesc, txDate, txMethod, txType]), mutation.busy)
 
   const [historyStartDate, setHistoryStartDate] = useState("")
   const [historyEndDate, setHistoryEndDate] = useState("")
@@ -120,7 +116,6 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
   const handleDeleteHistory = async (tx: any) => {
     if (!mutation.begin()) return;
     try {
-      if (!await confirm({ title: 'Hareketi sil', description: 'Bu hareket ve varsa bağlı faiz hareketleri silinir. İşlem geri alınamaz.', details: [{ label: 'Hesap', value: selectedAccount?.name || '-' }, { label: 'Tarih', value: formatDate(tx.date) }, { label: 'Tutar', value: formatCurrency(tx.amount) }, { label: 'Açıklama', value: tx.description }], destructive: true, confirmLabel: 'Hareketi sil' })) return;
       await runWrite(() => deleteTransaction(tx.id));
       toast({ title: 'Silindi', description: 'Hareket silindi ve bakiye güncellemesi tamamlandı.' });
       onRefresh();
@@ -150,8 +145,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
          }
       }
 
-      if (!await confirm({ title: 'Kaydı kontrol edin', description: 'Hesabı, tarihi ve kaydedilecek tutarı kontrol edin. Onaylamadan kayıt gönderilmez.', details: [{ label: 'Hesap', value: `${transactionAccount.custom_code || 'Kodsuz'} — ${transactionAccount.name}` }, { label: 'İşlem', value: txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı' }, { label: 'Tarih', value: formatDate(txDate) }, { label: 'Kaydedilecek tutar', value: formatCurrency(finalAmount) }, { label: 'Yöntem', value: txMethod }, { label: 'Açıklama', value: txDesc || (txType === 'tahsilat' ? 'Tahsilat' : txType === 'odeme' ? 'Ödeme' : 'Faiz / Gecikme Zammı') }], confirmLabel: 'Kaydı onayla' })) return;
-      await confirmDuplicateSave(allowDuplicate => runWrite(() => addTransaction({
+      await runWrite(() => addTransaction({
         accountId: transactionAccount.id.toString(),
         type: txType === 'faiz_isleme' as any ? 'odeme' : txType as any,
         amount: finalAmount,
@@ -162,19 +156,16 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
         interest_rate: parseFloat(txInterestRate) || 0,
         interest_type: txInterestType,
         is_interest: txType === 'faiz_isleme' as any
-      }, allowDuplicate)), confirm);
+      }));
       setTransactionAccount(null);
       toast({ title: "Başarılı", description: "İşlem Kaydedildi" });
 
       onRefresh();
 
       if (selectedAccount && selectedAccount.id === transactionAccount.id) {
-        const freshAccounts = await getAccounts();
-        const freshAcc = freshAccounts.find(a => a.id === selectedAccount.id);
-        if (freshAcc) { setSelectedAccount(freshAcc); await loadAccountHistory(freshAcc); }
+        await loadAccountHistory(selectedAccount);
       }
     } catch (e) {
-      if (e instanceof ActionCancelledError) return;
       reportError(e);
       onRefresh();
       if (selectedAccount) void loadAccountHistory(selectedAccount);
@@ -541,7 +532,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                       <div className="flex items-center justify-end gap-2">
                         <Button variant="ghost" size="icon" onClick={() => handleViewDetails(account)}><Eye className="h-4 w-4 text-muted-foreground hover:text-foreground" /></Button>
                         <Button variant="ghost" size="icon" onClick={() => openTransactionModal(account)}><Plus className="h-4 w-4" /></Button>
-                        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => copyPhone(account.phone)}><Copy className="mr-2 h-4 w-4" /> Kopyala</DropdownMenuItem><DropdownMenuItem onClick={() => onEdit(account)}><Pencil className="mr-2 h-4 w-4" /> Düzenle</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onClick={() => onDelete(account.id)}><Trash2 className="mr-2 h-4 w-4" /> Sil</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+                        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => copyPhone(account.phone)}><Copy className="mr-2 h-4 w-4" /> Kopyala</DropdownMenuItem><DropdownMenuItem onClick={() => onEdit(account)}><Pencil className="mr-2 h-4 w-4" /> Düzenle</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" disabled={mutation.disabled} onClick={() => onDelete(account.id)}><Trash2 className="mr-2 h-4 w-4" /> Sil</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -677,7 +668,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
       {/* İŞLEM MODALI (ARTı İKONU İLE AÇILAN) */}
       {transactionAccount && (
-      <Dialog open={!!transactionAccount} onOpenChange={(open) => { if (!open) void closeTxForm(() => setTransactionAccount(null)); }}>
+      <Dialog open={!!transactionAccount} onOpenChange={(open) => { if (!open && !mutation.busy) setTransactionAccount(null); }}>
           <DialogContent className="sm:max-w-[450px]">
             <DialogHeader><DialogTitle>Yeni İşlem Ekle</DialogTitle><DialogDescription className="font-semibold text-primary">{transactionAccount.name}</DialogDescription></DialogHeader>
             <WriteSafetyHint />
@@ -737,7 +728,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                 <div className="space-y-1"><Label>Açıklama</Label><Input autoComplete="off" value={txDesc} onChange={e => setTxDesc(e.target.value)} placeholder={txType === 'tahsilat' ? 'Örn: Nakit tahsilat' : 'Örn: Malzeme ödemesi'} /></div>
               </div>
             </div>
-            <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeTxForm(() => setTransactionAccount(null))}>İptal</Button><Button disabled={mutation.disabled} onClick={handleTransactionSave}>{mutation.busy ? 'İşlem sürüyor…' : 'İşlemi Kaydet'}</Button></DialogFooter>
+            <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => setTransactionAccount(null)}>İptal</Button><Button disabled={mutation.disabled} onClick={handleTransactionSave}>{mutation.busy ? 'Kaydediliyor…' : 'İşlemi Kaydet'}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       )}

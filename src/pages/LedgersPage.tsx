@@ -8,15 +8,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { addLedger } from "@/services/db"
-// removed unused import
+import { addLedger, deleteLedger } from "@/services/db"
 import { useData } from "@/contexts/DataContext"
 import { useMutationLock } from '@/hooks/use-mutation-lock'
 import { useActionSafety } from '@/contexts/ActionSafetyContext'
-import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
 import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
-import { ActionCancelledError } from '@/lib/action-safety'
-import { confirmHistoryDeletion } from '@/lib/confirm-deletion'
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 
@@ -25,14 +21,13 @@ export default function LedgersPage() {
   const { ledgers, refreshData } = useData()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const mutation = useMutationLock()
-  const { confirm, reportError, runWrite } = useActionSafety()
+  const { reportError, runWrite } = useActionSafety()
 
   const [formData, setFormData] = useState({
     type: "kasa" as "kasa" | "banka",
     name: "",
     currency: "TRY"
   })
-  const closeForm = useFormExitGuard(isModalOpen, JSON.stringify(formData), mutation.busy)
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -60,12 +55,10 @@ export default function LedgersPage() {
     const ledger = ledgers.find(item => item.id === id);
     if (!ledger || !mutation.begin()) return;
       try {
-        const { deleteLedger } = await import("@/services/db");
-        await runWrite(() => deleteLedger(id, count => confirmHistoryDeletion(confirm, ledger.name, count)));
+        await runWrite(() => deleteLedger(id));
         toast({ title: "Başarıyla Silindi", description: "Kasa/banka hesabı silindi." });
         await refreshData()
       } catch (e: any) {
-        if (e instanceof ActionCancelledError) return;
         reportError(e);
         refreshData()
         toast({ title: "Hata", description: "Silinemedi: " + e.message, variant: "destructive" })
@@ -151,7 +144,7 @@ export default function LedgersPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isModalOpen} onOpenChange={open => { if (open) setIsModalOpen(true); else void closeForm(() => setIsModalOpen(false)); }}>
+      <Dialog open={isModalOpen} onOpenChange={open => { if (open) setIsModalOpen(true); else if (!mutation.busy) setIsModalOpen(false); }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Yeni Hesap Ekle</DialogTitle>
@@ -180,8 +173,8 @@ export default function LedgersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button disabled={mutation.busy} variant="outline" onClick={() => void closeForm(() => setIsModalOpen(false))}>İptal</Button>
-            <Button onClick={handleSave} disabled={mutation.disabled}>{mutation.busy ? 'İşlem sürüyor…' : 'Kaydet'}</Button>
+            <Button disabled={mutation.busy} variant="outline" onClick={() => setIsModalOpen(false)}>İptal</Button>
+            <Button onClick={handleSave} disabled={mutation.disabled}>{mutation.busy ? 'Kaydediliyor…' : 'Kaydet'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

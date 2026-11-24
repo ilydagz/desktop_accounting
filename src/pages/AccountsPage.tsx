@@ -17,10 +17,7 @@ import { useData } from "@/contexts/DataContext"
 import { useMutationLock } from "@/hooks/use-mutation-lock"
 import { type Balance } from "@/lib/account-balance"
 import { useActionSafety } from '@/contexts/ActionSafetyContext'
-import { useFormExitGuard } from '@/hooks/use-form-exit-guard'
 import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
-import { ActionCancelledError } from '@/lib/action-safety'
-import { confirmHistoryDeletion } from '@/lib/confirm-deletion'
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 const countries = [{ label: "Türkiye", value: "TR", code: "+90", flag: "🇹🇷" }, { label: "ABD", value: "US", code: "+1", flag: "🇺🇸" }, { label: "Almanya", value: "DE", code: "+49", flag: "🇩🇪" }]
@@ -34,7 +31,7 @@ export default function AccountsPage() {
   const { institutionType } = useAuth()
   const { accounts, refreshData } = useData()
   const mutation = useMutationLock()
-  const { confirm, reportError, runWrite } = useActionSafety()
+  const { reportError, runWrite } = useActionSafety()
   const [showNewAccount, setShowNewAccount] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [originalBalances, setOriginalBalances] = useState<Balance | null>(null)
@@ -54,8 +51,6 @@ export default function AccountsPage() {
       currency: "TRY", borc: "", alacak: "", bakiye: "", role: "", salary: "", startDate: "",
       customerGroup: "", maturityDays: "", deliveryAddress: "", notes: "", customCode: ""
   })
-  const closeAccountForm = useFormExitGuard(showNewAccount, JSON.stringify({ formData, accountType }), mutation.busy)
-  const closeOwnerForm = useFormExitGuard(showQuickAdd, JSON.stringify([quickAddName, quickAddPhone]), mutation.busy)
 
   const getTerm = () => {
     switch (institutionType) {
@@ -272,24 +267,11 @@ export default function AccountsPage() {
         };
 
         if (editingId) { 
-            const balancesChanged = originalBalances && (commonData.borc !== originalBalances.borc || commonData.alacak !== originalBalances.alacak || commonData.bakiye !== originalBalances.bakiye);
-            if (balancesChanged && !await confirm({
-              title: 'Finansal tutar değişikliğini kontrol edin',
-              description: 'Bu işlem mevcut toplamları doğrudan değiştirir. Hareket geçmişi değişmez; girilen tutarlar otomatik hesaplanmaz.',
-              details: [
-                { label: 'Hesap', value: `${commonData.custom_code || 'Kodsuz'} — ${displayName}` },
-                { label: 'Borç', value: `${formatCurrency(originalBalances!.borc)} → ${formatCurrency(commonData.borc)}` },
-                { label: 'Alacak', value: `${formatCurrency(originalBalances!.alacak)} → ${formatCurrency(commonData.alacak)}` },
-                { label: 'Net bakiye', value: `${formatCurrency(originalBalances!.bakiye)} → ${formatCurrency(commonData.bakiye)}` },
-              ],
-              acknowledgement: 'Bu tutarları belgelerle kontrol ettim ve doğrudan değiştirmek istiyorum.', confirmLabel: 'Tutarları kaydet',
-            })) return;
             await runWrite(() => updateAccount(editingId, commonData, originalBalances ?? undefined));
             setShowNewAccount(false); setEditingId(null);
             toast({ title: "Güncellendi", description: `${t.single} başarıyla güncellendi.` });
         } 
         else { 
-            if ((commonData.borc || commonData.alacak || commonData.bakiye) && !await confirm({ title: 'Açılış tutarlarını kontrol edin', description: 'Bu tutarlar girdiğiniz haliyle kaydedilir. Aynı tutarları geçmiş hareket olarak da girmeniz çift kayda yol açabilir.', details: [{ label: 'Hesap', value: displayName }, { label: 'Açılış borcu', value: formatCurrency(commonData.borc) }, { label: 'Açılış alacağı', value: formatCurrency(commonData.alacak) }, { label: 'Açılış bakiyesi', value: formatCurrency(commonData.bakiye) }], confirmLabel: 'Hesabı oluştur' })) return;
             await runWrite(() => addAccount(commonData));
             setShowNewAccount(false); setEditingId(null);
             toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` });
@@ -307,12 +289,10 @@ export default function AccountsPage() {
       const account = accounts.find(item => item.id === id);
       if (!account || !mutation.begin()) return;
       try {
-          const name = `${account.custom_code || 'Kodsuz'} — ${account.name}`;
-          await runWrite(() => deleteAccount(id, count => confirmHistoryDeletion(confirm, name, count)));
+          await runWrite(() => deleteAccount(id));
           toast({ title: "Silindi", description: `${t.single} silindi.` });
           await refreshData();
       } catch (e) {
-          if (e instanceof ActionCancelledError) return;
           reportError(e);
           refreshData();
           toast({ title: "Silinemedi", description: e instanceof Error ? e.message : 'Sonucu kontrol edin.', variant: "destructive" });
@@ -375,7 +355,7 @@ export default function AccountsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={showNewAccount} onOpenChange={open => { if (open) setShowNewAccount(true); else void closeAccountForm(() => setShowNewAccount(false)); }}>
+      <Dialog open={showNewAccount} onOpenChange={open => { if (open) setShowNewAccount(true); else if (!mutation.busy) setShowNewAccount(false); }}>
         <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingId ? `${t.single} Düzenle` : `Yeni ${t.single}`}</DialogTitle></DialogHeader>
           <WriteSafetyHint />
@@ -495,11 +475,11 @@ export default function AccountsPage() {
             </div>
 
           </div>
-          <DialogFooter><Button disabled={mutation.disabled} onClick={handleSave} className="w-full sm:w-auto">{mutation.busy ? 'İşlem sürüyor…' : editingId ? "Güncelle" : "Kaydet"}</Button></DialogFooter>
+          <DialogFooter><Button disabled={mutation.disabled} onClick={handleSave} className="w-full sm:w-auto">{mutation.busy ? (editingId ? 'Güncelleniyor…' : 'Kaydediliyor…') : editingId ? "Güncelle" : "Kaydet"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showQuickAdd} onOpenChange={open => { if (open) setShowQuickAdd(true); else void closeOwnerForm(() => setShowQuickAdd(false)); }}>
+      <Dialog open={showQuickAdd} onOpenChange={open => { if (open) setShowQuickAdd(true); else if (!mutation.busy) setShowQuickAdd(false); }}>
           <DialogContent className="sm:max-w-[350px]">
               <DialogHeader><DialogTitle>Hızlı Sahip Ekle</DialogTitle></DialogHeader>
               <WriteSafetyHint />
@@ -507,7 +487,7 @@ export default function AccountsPage() {
                   <div className="space-y-1.5"><Label>Ad Soyad</Label><Input autoComplete="off" placeholder="Sahip adı soyadı..." value={quickAddName} onChange={e => setQuickAddName(e.target.value)} autoFocus /></div>
                   <div className="space-y-1.5"><Label>Telefon</Label><Input autoComplete="off" placeholder="5XX XXX XX XX" value={quickAddPhone} onChange={e => setQuickAddPhone(e.target.value)} /></div>
               </div>
-              <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => void closeOwnerForm(() => setShowQuickAdd(false))}>İptal</Button><Button disabled={mutation.disabled} onClick={handleQuickAdd}>{mutation.busy ? 'İşlem sürüyor…' : 'Ekle ve Seç'}</Button></DialogFooter>
+              <DialogFooter><Button disabled={mutation.busy} variant="outline" onClick={() => setShowQuickAdd(false)}>İptal</Button><Button disabled={mutation.disabled} onClick={handleQuickAdd}>{mutation.busy ? 'Ekleniyor…' : 'Ekle ve Seç'}</Button></DialogFooter>
           </DialogContent>
       </Dialog>
     </div>

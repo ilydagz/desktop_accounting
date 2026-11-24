@@ -9,7 +9,7 @@
 - Hesap düzenleme formu güncel borç/alacak/net tutarlarını açılış bilgileri
   gibi geri yazıyordu. Boş veya eski bir form güncel toplamları ezebiliyordu.
   Finansal alanlar kullanıcı tarafından değiştirilmemişse düzenleme bu alanları
-  göndermiyor. Kullanıcı bilerek değiştirmişse ayrıca onay isteniyor ve kayıttaki
+  göndermiyor. Kullanıcı tutarları değiştirmişse kayıttaki
   tutarlar form açıldığı andaki değerlerle eşleşmeden güncellenmiyor. Manuel
   borç, alacak ve bağımsız net bakiye girişi korunuyor; net otomatik hesaplanmıyor.
 - Ekstre anlık görüntüsü, hareketin etkisi geri alındıktan sonra üretiliyordu.
@@ -24,9 +24,9 @@ kanıtlamaz. Önceki sürümde bu işlemler için bir denetim günlüğü yok.
 
 - Hızlı Bakış → Hesap Kontrolü salt okunur çalışır. Hesapların mevcut toplamını,
   hareketlerin toplamını, şüpheli durumları ve olası mükerrer grupları gösterir.
-- Kontrol raporu JSON olarak indirilebilir. Hesap ve hareket kimlikleri,
-  tarihleri, oluşturulma tarihleri, tutarlar ve kasa bağlantıları rapordadır.
-  Rapor kayıtları değiştirmez veya otomatik mükerrer silmez.
+- Kontrol raporu uygulamanın Hesap Listesi düzeninde PDF olarak indirilebilir.
+  PDF, uyarılı hesapların kayıtlı tutarlarını ve her satırın tespit edilen sorununu gösterir.
+  Doğrulama için ayrıntılı hareket kimlikleri veritabanından kontrol edilir.
 - Ekstre açılırken hesap kartı ve hareket geçmişi yeniden okunur. Hatalı/eksik
   okuma boş hesap gibi sunulmaz. Rapor uyarıları muhasebe kuralı olarak uygulanmaz;
   yalnızca okuma tamamlanmamış veya başarısız olmuşsa çıktı bekletilir.
@@ -62,31 +62,27 @@ raporu/gerçek kayıt kimlikleri olmadan veri düzeltme ve silme SQL'i üretilme
 
 ## Kullanıcı deneyimiyle eklenen korumalar
 
-- Hareket ekleme, düzenleme, toplu giriş ve faiz kaydı öncesinde hesap, tarih ve
-  kaydedilecek mevcut tutar gösterilir. Önizleme yeni bir hesaplama yapmaz.
-  Toplu işlemde hedef hesaplar ve hesap başına tutar ayrıca onaylanır.
-- Manuel borç/alacak/net değişikliğinde önceki ve girilen yeni tutarlar yan yana
-  gösterilir. Birbirinden bağımsız girilen bu tutarlar aynen korunur.
-- Silme onayında hareketin hesabı, tarihi, tutarı ve açıklaması gösterilir.
-  Cari/kasa hesabı silmede hesap, sunucudan okunan güncel hareket sayısı ve
-  silmenin etkisi tek bir onayda gösterilir. Hareket geçmişi silmeyi engellemez;
-  kullanıcı onaylarsa bağlı hareketler ve varsa alt faiz hareketleri
-  mevcut hareket silme kurallarıyla geri alınarak silinir, sonra hesap silinir.
-  Onaydan vazgeçmek hiçbir kaydı değiştirmez. Onay sırasında yeni hareket
-  eklenirse yeniden inceleme istenir; varsayılan odak vazgeç düğmesindedir.
+- Kaydetme, güncelleme, faiz işleme ve silme seçilen düğmeyle başlar.
+  İşlem boyunca kullanıcıya durum gösterilir, tamamlandığında sonuç bildirilir.
+  Toplu işlem formunda girilen tutarın kaç hesaba uygulanacağı gösterilir.
+- Manuel borç, alacak ve net bakiye tutarları birbirinden bağımsız kaydedilir.
+- Cari veya kasa/banka hesabı silinirken bağlı hareketler ve alt faiz hareketleri
+  mevcut silme kurallarıyla geri alınarak silinir, ardından hesap silinir.
+  İlk iki okumada hareket geçmişi değişirse silme başlamadan durdurulur.
+- Aynı hesap, tarih, tutar ve diğer işlem bilgileriyle eşleşen kayıt engellenir.
+  Ayrı bir hareketin açıklamasına makbuz numarası gibi ayırt edici bilgi eklenebilir.
 - Uygulama içindeki finansal formlar ortak gönderim kilidi kullanır. İkinci bir
   form, ilk işlemin ortasında yeni bir gönderim başlatamaz. Yazma sürerken
   kenar menüden yön değiştirme ve form kapatma bekletilir.
-- Çevrimdışı kayıt gönderilmez. Kirli form kapatılırken vazgeçme onayı,
-  tarayıcı sayfası kapatılırken tarayıcının desteklediği ayrılma uyarısı kullanılır.
+- Çevrimdışı kayıt gönderilmez. İşlem sürerken tarayıcı sayfası kapatılırsa
+  tarayıcının desteklediği ayrılma uyarısı kullanılır.
   Formlar kalıcı taslak olarak saklanmaz; zorla kapatma form verisini kaybettirebilir.
 - Yazma başlamadan kullanıcıya özel yalnızca tarih ve durum işareti tutulur.
   Yanıt belirsizse veya işlem kısmen tamamlandıysa yeni gönderimler inceleme
   yapılana kadar bekletilir. Uygulama yarıda kapanırsa bu işaret sonraki açılışta
   uyarı oluşturur. İşaret müşteri adı, tutar, form içeriği veya erişim anahtarı
   içermez; tarayıcı depolamayı engelliyorsa yalnızca bellek içi koruma çalışır.
-- "Kayıtları kontrol ettim" onayı kayıtları veya bakiyeleri düzeltmez ve tekrar
-  göndermez. Yalnızca kullanıcının inceleme yaptığını kabul edip uyarıyı kaldırır.
+- "Kayıtları kontrol ettim" düğmesi yalnızca uyarıyı kaldırır.
 - Veri okuma başarısızlığı sıfır/boş hesap gibi gösterilmez. Son başarılı yenileme
   saati görünür; pencereye dönülünce ve internet geri gelince veriler yeniden okunur.
   Eski yenileme isteklerinin güncel veriyi ezmesi ve kullanıcı değişiminde eski

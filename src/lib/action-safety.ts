@@ -1,18 +1,3 @@
-export type Confirmation = {
-  title: string;
-  description: string;
-  details?: { label: string; value: string }[];
-  confirmLabel?: string;
-  destructive?: boolean;
-  acknowledgement?: string;
-  requireText?: string;
-};
-export type ConfirmAction = (options: Confirmation) => Promise<boolean>;
-
-export class ActionCancelledError extends Error {
-  constructor() { super('İşlem iptal edildi.'); }
-}
-
 export class WriteOutcomeError extends Error {
   readonly outcome: 'uncertain' | 'partial';
   constructor(message: string, outcome: 'uncertain' | 'partial') { super(message); this.outcome = outcome; }

@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { readAllPages } from "@/lib/paginated-read";
 import { inspectAccount, money, movementKey, type Balance } from "@/lib/account-balance";
-import { ActionCancelledError, WriteOutcomeError, throwWriteError } from '@/lib/action-safety';
+import { WriteOutcomeError, throwWriteError } from '@/lib/action-safety';
 
 // Oturum açan kullanıcının kurum ID'sini getirir
 async function getInstitutionId() {
@@ -62,9 +62,7 @@ export async function addAccount(account: any) {
   if (error) throwWriteError(error);
 }
 
-type ConfirmHistoryDeletion = (movementCount: number) => Promise<boolean>;
-
-async function deleteWithHistory(table: 'accounts' | 'ledgers', field: 'account_id' | 'ledger_id', id: string, confirmHistory?: ConfirmHistoryDeletion) {
+async function deleteWithHistory(table: 'accounts' | 'ledgers', field: 'account_id' | 'ledger_id', id: string) {
   requireWriteConnection();
   const institution_id = await getInstitutionId();
   const readHistory = () => readAllPages<{ id: string; parent_id?: string }>((from, to) => supabase.from('transactions')
@@ -72,18 +70,13 @@ async function deleteWithHistory(table: 'accounts' | 'ledgers', field: 'account_
   let history;
   try { history = await readHistory(); }
   catch { throw new Error('İşlem geçmişi doğrulanamadı. Hesap silinmedi.'); }
-  if (confirmHistory) {
-    if (!await confirmHistory(history.length)) throw new ActionCancelledError();
-  } else if (history.length) throw new Error('Hareket geçmişi bulunan hesap için silme onayı gerekiyor.');
-
-  // Recheck after the user reviews the confirmation. Newly added
-  // movements must not be silently included in an earlier approval.
+  // Abort before changing data if the list shifted while preparing the deletion.
   const current = await readHistory();
-  const approvedIds = new Set(history.map(tx => tx.id));
-  if (current.length !== history.length || current.some(tx => !approvedIds.has(tx.id))) {
-    throw new Error('Onay sırasında hareket geçmişi değişti. Listeyi yenileyip silme işlemini yeniden onaylayın.');
+  const historyIds = new Set(history.map(tx => tx.id));
+  if (current.length !== history.length || current.some(tx => !historyIds.has(tx.id))) {
+    throw new Error('Silme işlemi hazırlanırken hareket geçmişi değişti. Listeyi yenileyip tekrar deneyin.');
   }
-  const roots = history.filter(tx => !tx.parent_id || !approvedIds.has(tx.parent_id));
+  const roots = history.filter(tx => !tx.parent_id || !historyIds.has(tx.parent_id));
   if (history.length && !roots.length) throw new Error('Bağlı hareketler doğrulanamadı. Hesap silinmedi.');
   let started = false;
   try {
@@ -102,8 +95,8 @@ async function deleteWithHistory(table: 'accounts' | 'ledgers', field: 'account_
   }
 }
 
-export async function deleteAccount(id: string, confirmHistory?: ConfirmHistoryDeletion) {
-  await deleteWithHistory('accounts', 'account_id', id, confirmHistory);
+export async function deleteAccount(id: string) {
+  await deleteWithHistory('accounts', 'account_id', id);
 }
 
 export async function updateAccount(id: string, account: any, originalBalances?: Balance) {
@@ -141,8 +134,8 @@ export async function addLedger(ledger: { type: 'kasa' | 'banka', name: string, 
   if (error) throwWriteError(error);
 }
 
-export async function deleteLedger(id: string, confirmHistory?: ConfirmHistoryDeletion) {
-  await deleteWithHistory('ledgers', 'ledger_id', id, confirmHistory);
+export async function deleteLedger(id: string) {
+  await deleteWithHistory('ledgers', 'ledger_id', id);
 }
 
 // --- TRANSACTIONS (İŞLEMLER) ---
@@ -176,7 +169,7 @@ export async function getTransactions(institutionId?: string) {
 }
 
 export class DuplicateTransactionError extends Error {
-  constructor() { super('Aynı hesap, tarih, tutar ve açıklamaya sahip bir işlem zaten var. Eski kaydı kontrol edin; bakiyeyi düzeltmek için işlemi yeniden girmeyin.'); }
+  constructor() { super('Aynı hesap, tarih, tutar ve açıklamaya sahip bir hareket zaten var. Bu ayrı bir hareketse açıklamasına makbuz veya işlem numarası gibi ayırt edici bir bilgi ekleyin.'); }
 }
 
 type TransactionInput = { accountId: string, ledgerId?: string | null, type: 'tahsilat' | 'odeme', amount: number, description: string, date: string, method: string, maturity_date?: string, interest_rate?: number, interest_type?: string, is_interest?: boolean, parent_id?: string };

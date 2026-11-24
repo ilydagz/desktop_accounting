@@ -16,23 +16,20 @@ export function WriteSafetyHint() {
 export function WriteSafetyStatus() {
   const online = useOnlineStatus();
   const { owner } = useSyncExternalStore(mutationCoordinator.subscribe, mutationCoordinator.snapshot, mutationCoordinator.snapshot);
-  const { notice, confirm, clearNotice } = useActionSafety();
+  const { notice, clearNotice } = useActionSafety();
   useEffect(() => {
     if (!owner) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [owner]);
-  async function acknowledge() {
-    if (await confirm({ title: 'Son işlemi kontrol ettiniz mi?', description: 'Bu onay yalnızca uyarıyı kaldırır; hiçbir hareketi veya bakiyeyi düzeltmez.', acknowledgement: 'Mevcut kaydı ve Hesap Kontrolü raporunu kontrol ettim. Eksik güncelleme varsa düzeltme için bildirdim.', confirmLabel: 'Kontrol ettim' })) clearNotice();
-  }
   return <div className="space-y-2">
     {!online && <div role="alert" className="rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950">Çevrimdışısınız. Kayıt gönderimi bekletiliyor. Açık formdaki bilgileriniz bu ekran açık kaldığı sürece korunur.</div>}
     {owner && <p role="status" className="text-sm text-muted-foreground">İşleminiz sürüyor. Sonuç görünene kadar sayfayı kapatmayın veya aynı kaydı tekrar göndermeyin.</p>}
     {notice && <div role="alert" className="rounded-md border border-destructive p-3 text-sm space-y-2">
       <p className="font-semibold">Son işlemin sonucu kontrol edilmeli.</p>
       <p>{notice.outcome === 'partial' ? 'Kayıt adımlarının bir kısmı tamamlanamadı.' : 'Sunucudan kesin sonuç alınamadı; kayıt tamamlanmış olabilir.'} Aynı işlemi yeniden girmeyin. Kontrol tamamlanana kadar yeni kayıt gönderimi bekletilir.</p>
-      <div className="flex flex-wrap gap-2"><BalanceAuditDialog /><Button variant="outline" disabled={!online || Boolean(owner)} onClick={() => void acknowledge()}>Kayıtları kontrol ettim</Button></div>
+      <div className="flex flex-wrap gap-2"><BalanceAuditDialog /><Button variant="outline" disabled={!online || Boolean(owner)} onClick={clearNotice}>Kayıtları kontrol ettim</Button></div>
     </div>}
   </div>;
 }

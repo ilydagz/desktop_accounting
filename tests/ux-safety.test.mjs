@@ -60,36 +60,13 @@ test('offline or unconfigured writes are refused before a database request is se
   }
 });
 
-test('accounts with history require confirmation before anything changes', async () => {
-  const { db, calls, tables } = await databaseHarness({ accounts: [account], transactions: [movement] });
-  await assert.rejects(db.deleteAccount('a'), /Hareket geçmişi bulunan hesap/);
-  assert.equal(calls.filter(call => call.operation !== 'select').length, 0);
-  assert.equal(tables.accounts[0].bakiye, 123);
-  assert.equal(tables.transactions.length, 1);
-});
-
-test('ledgers with history require confirmation before anything changes', async () => {
-  const { db, calls, tables } = await databaseHarness({ accounts: [account], transactions: [movement], ledgers: [{ id: 'bank', institution_id: 'institution', balance: 42 }] });
-  await assert.rejects(db.deleteLedger('bank'), /silme onayı/);
-  assert.equal(calls.filter(call => call.operation !== 'select').length, 0);
-  assert.equal(tables.ledgers[0].balance, 42);
-});
-
 for (const kind of ['account', 'ledger']) {
   const seed = () => ({ accounts: [account], transactions: [movement], ledgers: [{ id: 'bank', institution_id: 'institution', balance: 42 }] });
-  const remove = (db, confirm) => kind === 'account' ? db.deleteAccount('a', confirm) : db.deleteLedger('bank', confirm);
+  const remove = db => kind === 'account' ? db.deleteAccount('a') : db.deleteLedger('bank');
 
-  test(`${kind}: cancelling confirmation preserves every record and amount`, async () => {
-    const { db, calls, tables } = await databaseHarness(seed());
-    const before = structuredClone(tables);
-    await assert.rejects(remove(db, async count => { assert.equal(count, 1); return false; }), /iptal edildi/);
-    assert.deepEqual(tables, before);
-    assert.equal(calls.some(call => call.operation !== 'select'), false);
-  });
-
-  test(`${kind}: confirming history deletion reuses the existing reversal rules`, async () => {
+  test(`${kind}: direct deletion with history reuses the existing reversal rules`, async () => {
     const { db, tables } = await databaseHarness(seed());
-    await remove(db, async count => { assert.equal(count, 1); return true; });
+    await remove(db);
     assert.equal(tables.transactions.length, 0);
     if (kind === 'account') {
       assert.equal(tables.accounts.length, 0);
@@ -102,11 +79,14 @@ for (const kind of ['account', 'ledger']) {
     }
   });
 
-  test(`${kind}: newly added history during confirmation requires a fresh review`, async () => {
-    const { db, calls, tables } = await databaseHarness(seed());
-    await assert.rejects(remove(db, async () => {
-      tables.transactions.push({ ...movement, id: 'new' }); return true;
-    }), /hareket geçmişi değişti/);
+  test(`${kind}: newly added history while preparing deletion aborts before any writes`, async () => {
+    let historyReads = 0;
+    const { db, calls, tables } = await databaseHarness({ ...seed(), fail: call => {
+      if (call.table === 'transactions' && call.operation === 'select' && ++historyReads === 2) {
+        tables.transactions.push({ ...movement, id: 'new' });
+      }
+    } });
+    await assert.rejects(remove(db), /hareket geçmişi değişti/);
     assert.equal(calls.some(call => call.operation !== 'select'), false);
     assert.equal(tables.accounts.length, 1);
     assert.equal(tables.ledgers.length, 1);
@@ -116,13 +96,13 @@ for (const kind of ['account', 'ledger']) {
     const data = seed();
     data.transactions.push({ ...movement, id: 'interest', parent_id: movement.id, is_interest: true, amount: 2 });
     const { db, tables } = await databaseHarness(data);
-    await remove(db, async count => { assert.equal(count, 2); return true; });
+    await remove(db);
     assert.equal(tables.transactions.length, 0);
     if (kind === 'account') assert.equal(tables.ledgers[0].balance, 54);
     else assert.equal(tables.accounts[0].bakiye, 135);
 
     const failed = await databaseHarness({ ...seed(), fail: call => call.table === 'accounts' && call.operation === 'update' ? { code: '23514' } : null });
-    await assert.rejects(remove(failed.db, async () => true), error => error.outcome === 'partial');
+    await assert.rejects(remove(failed.db), error => error.outcome === 'partial');
     assert.equal(failed.tables.accounts.length, 1);
     assert.equal(failed.tables.ledgers.length, 1);
   });
