@@ -72,17 +72,14 @@ raporu/gerçek kayıt kimlikleri olmadan veri düzeltme ve silme SQL'i üretilme
 - Aynı hesap, tarih, tutar ve diğer işlem bilgileriyle eşleşen kayıt engellenir.
   Ayrı bir hareketin açıklamasına makbuz numarası gibi ayırt edici bilgi eklenebilir.
 - Uygulama içindeki finansal formlar ortak gönderim kilidi kullanır. İkinci bir
-  form, ilk işlemin ortasında yeni bir gönderim başlatamaz. Yazma sürerken
-  kenar menüden yön değiştirme ve form kapatma bekletilir.
-- Çevrimdışı kayıt gönderilmez. İşlem sürerken tarayıcı sayfası kapatılırsa
-  tarayıcının desteklediği ayrılma uyarısı kullanılır.
-  Formlar kalıcı taslak olarak saklanmaz; zorla kapatma form verisini kaybettirebilir.
+  form, ilk işlemin ortasında yeni bir gönderim başlatamaz. Sayfalar arasında
+  geçiş yapılabilir. Bazı formlarda kayıt tamamlanır tamamlanmaz form kapanır
+  ve listeler arka planda yenilenir.
+- Çevrimdışı kayıt gönderilmez.
 - Yazma başlamadan kullanıcıya özel yalnızca tarih ve durum işareti tutulur.
-  Yanıt belirsizse veya işlem kısmen tamamlandıysa yeni gönderimler inceleme
-  yapılana kadar bekletilir. Uygulama yarıda kapanırsa bu işaret sonraki açılışta
-  uyarı oluşturur. İşaret müşteri adı, tutar, form içeriği veya erişim anahtarı
-  içermez; tarayıcı depolamayı engelliyorsa yalnızca bellek içi koruma çalışır.
-- "Kayıtları kontrol ettim" düğmesi yalnızca uyarıyı kaldırır.
+  Belirsiz veya kısmi sonuçlar geçici bir durum mesajıyla bildirilir.
+  Uygulama yarıda kapanırsa işaret sonraki açılışta da aynı mesajı gösterir.
+  Mesaj çarpıyla veya süre dolduğunda kapanır.
 - Veri okuma başarısızlığı sıfır/boş hesap gibi gösterilmez. Son başarılı yenileme
   saati görünür; pencereye dönülünce ve internet geri gelince veriler yeniden okunur.
   Eski yenileme isteklerinin güncel veriyi ezmesi ve kullanıcı değişiminde eski
@@ -95,7 +92,9 @@ veri düzeltmesi ayrıca hazırlanmalıdır.
 ## Kalan mimari sınır
 
 Hareket ekleme, silme ve toplu girişte hesap/kasa toplamları yalnızca okunan
-önceki tutarlar hâlâ aynıysa güncellenir. Araya başka bir oturumun yazması
+önceki tutarlar hâlâ aynıysa güncellenir. Karşılaştırmada veritabanından metin
+olarak okunan ondalık değer kullanılır, böylece tarayıcıya aktarımda basamak
+kaybı eşleşmeyi engellemez. Araya başka bir oturumun yazması
 girerse yeni toplamın üstüne eski değer yazılmaz; işlem kısmi sonuç olarak
 incelemeye alınır. Silmede de satırın gerçekten silindiği doğrulanmadan bakiye
 ters etkisi uygulanmaz. Bunlar muhasebe formüllerini değiştirmez ve yarım kalan

@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSepar
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "@/hooks/use-toast"
 import { addTransaction, deleteTransaction, updateTransactionPaidStatus, addTransactionToMultipleAccounts, validateTransactionEdit } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
 import { useData } from "@/contexts/DataContext"
@@ -31,11 +31,10 @@ type TransactionType = "tahsilat" | "odeme" | "faiz_isleme"
 interface Transaction { id: string; account_id?: string; accountId?: string; accountName: string; type: TransactionType; amount: number; description: string; date: string; method?: string; ledger_id?: string; ledgerName?: string; maturity_date?: string; interest_rate?: number; interest_type?: string; is_interest?: boolean; parent_id?: string; is_paid?: boolean; }
 
 export default function TransactionsPage() {
-  const { toast } = useToast()
   const { institutionType } = useAuth()
   const { transactions, accounts, ledgers, refreshData } = useData()
   const mutation = useMutationLock()
-  const { reportError, runWrite } = useActionSafety()
+  const { runWrite } = useActionSafety()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<"all" | "tahsilat" | "odeme">("all")
@@ -157,9 +156,8 @@ export default function TransactionsPage() {
               }
           }
           setIsModalOpen(false);
-          await refreshData();
+          void refreshData();
       } catch (error) {
-          reportError(error);
           void refreshData();
           toast({ title: "İşlem tamamlanamadı", description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" });
       } finally { mutation.end(); }
@@ -172,7 +170,7 @@ export default function TransactionsPage() {
         if (!tx) return;
         await runWrite(() => updateTransactionPaidStatus(txId, true)); await loadData(); toast({ title: "Ödendi İşaretlendi", description: "Bu işlem için artık faiz hesaplanmayacak." });
       }
-      catch (error) { reportError(error); toast({ title: "Hata", description: error instanceof Error ? error.message : 'İşlem tamamlanamadı.', variant: "destructive" }); void refreshData(); }
+      catch (error) { toast({ title: "Hata", description: error instanceof Error ? error.message : 'İşlem tamamlanamadı.', variant: "destructive" }); void refreshData(); }
       finally { mutation.end(); }
   }
 
@@ -185,7 +183,7 @@ export default function TransactionsPage() {
               toast({ title: "Silindi" });
               await refreshData();
           } 
-          catch (error) { reportError(error); toast({ title: "Silme tamamlanamadı", description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" }); void refreshData(); }
+          catch (error) { toast({ title: "Silme tamamlanamadı", description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" }); void refreshData(); }
           finally { mutation.end(); }
   }
 
@@ -366,10 +364,9 @@ export default function TransactionsPage() {
               }));
               toast({ title: "Başarılı", description: "Faiz hesaba yansıtıldı." });
           }
-          await loadData();
           setInterestModalOpen(false);
+          void refreshData();
       } catch (e) {
-          reportError(e);
           toast({ title: "İşlem tamamlanamadı", description: e instanceof Error ? e.message : 'Hesap Kontrolü raporunu inceleyin.', variant: "destructive" });
           void refreshData();
       } finally { mutation.end(); }

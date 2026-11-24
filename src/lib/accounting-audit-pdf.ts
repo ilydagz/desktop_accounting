@@ -15,21 +15,23 @@ const contentHeight = paper.height - 2 * paper.margin;
 const maxHeight = contentHeight * 96 / 25.4 - 8;
 
 const styles = `
-  .account-audit-print { font: 12px/1.25 Arial, sans-serif; color: #333; background: white; }
+  .account-audit-print { font: 12px/1.35 Arial, sans-serif; color: #333; background: white; padding-bottom: 8px; }
   .account-audit-print header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
   .account-audit-print h1 { font-size: 24px; font-weight: bold; margin: 0 0 5px; }
   .account-audit-print p { margin: 0; color: #666; }
   .account-audit-print table { width: 100%; table-layout: fixed; border-collapse: collapse; }
   .account-audit-print th, .account-audit-print td {
-    border: 1px solid #ddd; padding: 3px 9px; text-align: left; vertical-align: middle; overflow-wrap: anywhere;
+    border: 1px solid #ddd; padding: 6px 9px; text-align: left; vertical-align: middle; overflow-wrap: anywhere;
   }
   .account-audit-print th, .account-audit-print tfoot { background: #f1f5f9; font-weight: bold; }
-  .account-audit-print .number { text-align: right; white-space: nowrap; }
+  .account-audit-print .number { text-align: right; }
   .account-audit-print .debt { color: #dc2626; }
   .account-audit-print .credit { color: #16a34a; }
   .account-audit-print .issue { font-size: 11.5px; }
   .account-audit-print small { font-size: 10px; }
   .account-audit-print footer { margin-top: 20px; font-size: 12px; color: #666; text-align: right; }
+  /* html2canvas measures text baselines with a hidden 1px image in the host document. */
+  body > div[style*="visibility: hidden"] > img[width="1"][height="1"] { display: inline; }
 `;
 
 function escapeHtml(text: string) {

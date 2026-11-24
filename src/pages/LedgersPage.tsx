@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "@/hooks/use-toast"
 import { addLedger, deleteLedger } from "@/services/db"
 import { useData } from "@/contexts/DataContext"
 import { useMutationLock } from '@/hooks/use-mutation-lock'
@@ -17,11 +17,11 @@ import { WriteSafetyHint } from '@/components/WriteSafetyStatus'
 const formatCurrency = (amount: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(amount)
 
 export default function LedgersPage() {
-  const { toast } = useToast()
   const { ledgers, refreshData } = useData()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const mutation = useMutationLock()
-  const { reportError, runWrite } = useActionSafety()
+  const { runWrite } = useActionSafety()
 
   const [formData, setFormData] = useState({
     type: "kasa" as "kasa" | "banka",
@@ -43,9 +43,8 @@ export default function LedgersPage() {
       setFormData({ type: "kasa", name: "", currency: "TRY" })
       toast({ title: "Başarılı", description: "Kasa/Banka eklendi." })
 
-      await refreshData()
+      void refreshData()
     } catch (e: any) {
-      reportError(e);
       refreshData()
       toast({ title: "Hata", description: e.message, variant: "destructive" })
     } finally { mutation.end(); }
@@ -54,15 +53,15 @@ export default function LedgersPage() {
   const handleDelete = async (id: string) => {
     const ledger = ledgers.find(item => item.id === id);
     if (!ledger || !mutation.begin()) return;
+    setDeletingId(id);
       try {
         await runWrite(() => deleteLedger(id));
         toast({ title: "Başarıyla Silindi", description: "Kasa/banka hesabı silindi." });
         await refreshData()
       } catch (e: any) {
-        reportError(e);
         refreshData()
         toast({ title: "Hata", description: "Silinemedi: " + e.message, variant: "destructive" })
-      } finally { mutation.end(); }
+      } finally { setDeletingId(null); mutation.end(); }
   }
 
   const totalKasa = ledgers.filter(l => l.type === 'kasa').reduce((sum, l) => sum + (l.balance || 0), 0)
@@ -132,8 +131,8 @@ export default function LedgersPage() {
                     </TableCell>
                     <TableCell className="text-right font-bold text-lg">{formatCurrency(ledger.balance || 0)}</TableCell>
                     <TableCell>
-                      <Button aria-label={`${ledger.name} hesabını sil`} variant="ghost" size="icon" className="text-destructive" disabled={mutation.disabled} onClick={() => handleDelete(ledger.id)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button aria-label={deletingId === ledger.id ? `${ledger.name} hesabı siliniyor` : `${ledger.name} hesabını sil`} aria-busy={deletingId === ledger.id} variant="ghost" size={deletingId === ledger.id ? 'sm' : 'icon'} className="text-destructive" disabled={mutation.disabled} onClick={() => handleDelete(ledger.id)}>
+                        {deletingId === ledger.id ? 'Siliniyor…' : <Trash2 className="h-4 w-4" />}
                       </Button>
                     </TableCell>
                   </TableRow>

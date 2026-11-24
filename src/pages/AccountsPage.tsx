@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AccountsTable } from "@/components/accounts-table"
 import { cn } from "@/lib/utils"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "@/hooks/use-toast"
 import { addAccount, deleteAccount, updateAccount } from "@/services/db"
 import { useAuth } from "@/contexts/AuthContext"
 import { useData } from "@/contexts/DataContext"
@@ -27,11 +27,10 @@ export type Account = {
 }
 
 export default function AccountsPage() {
-  const { toast } = useToast()
   const { institutionType } = useAuth()
   const { accounts, refreshData } = useData()
   const mutation = useMutationLock()
-  const { reportError, runWrite } = useActionSafety()
+  const { runWrite } = useActionSafety()
   const [showNewAccount, setShowNewAccount] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [originalBalances, setOriginalBalances] = useState<Balance | null>(null)
@@ -205,7 +204,6 @@ export default function AccountsPage() {
           
           await refreshData();
       } catch(e) { 
-          reportError(e);
           refreshData();
           toast({ title: "Eklenemedi", description: e instanceof Error ? e.message : 'Sonucu kontrol edin.', variant: "destructive" });
       } finally { mutation.end(); }
@@ -277,9 +275,8 @@ export default function AccountsPage() {
             toast({ title: "Başarılı", description: `${t.single} kartı oluşturuldu.` });
         }
 
-        await refreshData();
+        void refreshData();
     } catch (error) { 
-        reportError(error);
         refreshData();
         toast({ title: "Kaydedilemedi", description: error instanceof Error ? error.message : "İşlem sırasında bir hata oluştu.", variant: "destructive" });
     } finally { mutation.end(); }
@@ -293,7 +290,6 @@ export default function AccountsPage() {
           toast({ title: "Silindi", description: `${t.single} silindi.` });
           await refreshData();
       } catch (e) {
-          reportError(e);
           refreshData();
           toast({ title: "Silinemedi", description: e instanceof Error ? e.message : 'Sonucu kontrol edin.', variant: "destructive" });
       } finally { mutation.end(); }

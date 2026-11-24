@@ -18,14 +18,6 @@ test('a second form cannot start a write while another form owns the lock', () =
   assert.equal(lock.acquire(second), true);
 });
 
-test('an unresolved write requires review before new submissions', () => {
-  const lock = createMutationCoordinator();
-  lock.setReviewRequired(true);
-  assert.equal(lock.acquire(Symbol()), false);
-  lock.setReviewRequired(false);
-  assert.equal(lock.acquire(Symbol()), true);
-});
-
 test('review markers survive reopening, stay user-scoped, and contain no financial or customer data', () => {
   const items = new Map();
   const storage = { getItem: key => items.get(key) || null, setItem: (key, value) => items.set(key, value), removeItem: key => items.delete(key) };
@@ -166,6 +158,27 @@ test('the refresh queue remains usable after a failed read', async () => {
 });
 
 for (const action of ['add', 'delete', 'bulk']) {
+  test(`${action}: numeric comparisons preserve database precision for account and ledger balances`, async () => {
+    const exactBalance = '123456789.123456789';
+    const browserBalance = Number(exactBalance);
+    assert.notEqual(String(browserBalance), exactBalance);
+    const { db, tables } = await databaseHarness({
+      accounts: [{ ...account, bakiye: exactBalance }],
+      transactions: action === 'delete' ? [movement] : [],
+      ledgers: [{ id: 'bank', institution_id: 'institution', balance: exactBalance }],
+      numericJson: true,
+    });
+    const tx = { accountId: 'a', ledgerId: 'bank', type: 'odeme', amount: 10, date: movement.date, description: 'Test', method: 'Nakit' };
+    if (action === 'delete') await db.deleteTransaction(movement.id);
+    else if (action === 'bulk') await db.addTransactionToMultipleAccounts(['a'], tx);
+    else await db.addTransaction(tx);
+
+    const adjustment = action === 'delete' ? 10 : -10;
+    assert.equal(tables.accounts[0].bakiye, browserBalance + adjustment);
+    assert.equal(tables.ledgers[0].balance, browserBalance + adjustment);
+    assert.equal(tables.transactions.length, action === 'delete' ? 0 : 1);
+  });
+
   for (const target of ['accounts', 'ledgers']) {
     test(`${action}: a concurrent ${target} update is preserved and requires review`, async () => {
       let harness;
@@ -196,6 +209,17 @@ for (const action of ['add', 'delete', 'bulk']) {
     });
   }
 }
+
+test('deletion matches nullable balance snapshots using SQL null semantics', async () => {
+  const { db, tables } = await databaseHarness({
+    accounts: [{ ...account, alacak: null }], transactions: [movement],
+    ledgers: [{ id: 'bank', institution_id: 'institution', balance: null }],
+  });
+  await db.deleteTransaction(movement.id);
+  assert.equal(tables.accounts[0].alacak, 0);
+  assert.equal(tables.ledgers[0].balance, 10);
+  assert.equal(tables.transactions.length, 0);
+});
 
 test('a movement deleted by another session is never reversed a second time', async () => {
   let harness;

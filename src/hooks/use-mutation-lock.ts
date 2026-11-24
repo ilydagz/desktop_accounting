@@ -1,20 +1,19 @@
 import { useRef, useSyncExternalStore } from 'react';
 import { mutationCoordinator } from '@/lib/mutation-coordinator';
 import { useOnlineStatus } from '@/hooks/use-online-status';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast';
 
 export function useMutationLock() {
   const owner = useRef(Symbol('write'));
   const state = useSyncExternalStore(mutationCoordinator.subscribe, mutationCoordinator.snapshot, mutationCoordinator.snapshot);
   const online = useOnlineStatus();
-  const { toast } = useToast();
   const busy = state.owner !== null;
   return {
     busy,
-    disabled: busy || !online || state.reviewRequired,
+    disabled: busy || !online,
     begin() {
-      if (!online || state.reviewRequired) {
-        toast({ title: 'Kayıt bekletildi', description: !online ? 'Çevrimdışısınız. Formunuz açık kalır; bağlantı geldikten sonra tekrar deneyin.' : 'Önce sonucu belirsiz olan son işlemi kontrol edin.', variant: 'destructive' });
+      if (!online) {
+        toast({ title: 'Kayıt bekletildi', description: 'Çevrimdışısınız. Formunuz açık kalır. Bağlantı geldikten sonra tekrar deneyin.', variant: 'destructive' });
         return false;
       }
       return mutationCoordinator.acquire(owner.current);

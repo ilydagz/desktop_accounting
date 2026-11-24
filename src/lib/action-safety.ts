@@ -21,5 +21,5 @@ export function storeReviewNotice(storage: Pick<Storage, 'setItem' | 'removeItem
   try {
     if (notice) storage?.setItem('limes:write-review:' + userId, JSON.stringify({ at: notice.at, outcome: notice.outcome }));
     else storage?.removeItem('limes:write-review:' + userId);
-  } catch { /* The in-memory review gate stays active if storage is blocked. */ }
+  } catch { /* The in-memory notice still works if storage is blocked. */ }
 }

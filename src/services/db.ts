@@ -28,6 +28,14 @@ async function writeResponse<T>(request: PromiseLike<T>): Promise<T> {
   try { return await request; }
   catch (error) { throwWriteError(error); }
 }
+// Keep the original decimal spelling for conditional writes. Reading a
+// PostgreSQL numeric as a JSON number can lose digits before it is compared.
+const accountBalanceSnapshot = 'borc::text, alacak::text, bakiye::text';
+
+function previousValueOperator(value: string | null) {
+  return value === null ? 'is' : 'eq';
+}
+
 async function afterMovement<T>(request: PromiseLike<T>): Promise<T> {
   try { return await request; }
   catch { throw new WriteOutcomeError('Hareketin bir bölümü kaydedildi ancak sonraki adımlar tamamlanamadı. Yeniden göndermeden önce Hesap Kontrolü raporunu inceleyin.', 'partial'); }
@@ -221,7 +229,7 @@ export async function addTransaction(tx: TransactionInput, allowDuplicate = fals
     console.error('İşlem kaydedildi, bakiye güncellenemedi:', cause);
     throw new WriteOutcomeError('İşlem kaydı oluşturuldu ancak bakiye güncellemesi tamamlanamadı. Aynı işlemi yeniden girmeyin; Hesap Kontrolü raporunu alın.', 'partial');
   };
-  const { data: accData, error: accReadError } = await afterMovement(supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.accountId).single());
+  const { data: accData, error: accReadError } = await afterMovement(supabase.from('accounts').select(accountBalanceSnapshot).eq('id', tx.accountId).single());
   if (accReadError || !accData) partialFailure(accReadError);
   
   if (accData) {
@@ -236,7 +244,9 @@ export async function addTransaction(tx: TransactionInput, allowDuplicate = fals
     // A different session may have changed these totals since the read. Refuse
     // to overwrite them; the existing partial-outcome review handles the rest.
     const { data, error } = await afterMovement(supabase.from('accounts').update({ borc: money(borc), alacak: money(alacak), bakiye: money(bakiye) }).eq('id', tx.accountId)
-      .eq('borc', accData.borc).eq('alacak', accData.alacak).eq('bakiye', accData.bakiye).select('id').single());
+      .filter('borc', previousValueOperator(accData.borc), accData.borc)
+      .filter('alacak', previousValueOperator(accData.alacak), accData.alacak)
+      .filter('bakiye', previousValueOperator(accData.bakiye), accData.bakiye).select('id').single());
     if (error || !data) partialFailure(error);
 
     if (alacak >= borc) {
@@ -247,7 +257,7 @@ export async function addTransaction(tx: TransactionInput, allowDuplicate = fals
 
   // 3. Kasa/Banka bakiyesini güncelle
   if (tx.ledgerId) {
-    const { data: lData, error: ledgerReadError } = await afterMovement(supabase.from('ledgers').select('balance').eq('id', tx.ledgerId).single());
+    const { data: lData, error: ledgerReadError } = await afterMovement(supabase.from('ledgers').select('balance::text').eq('id', tx.ledgerId).single());
     if (ledgerReadError || !lData) partialFailure(ledgerReadError);
     if (lData) {
       let balance = money(lData.balance);
@@ -256,7 +266,7 @@ export async function addTransaction(tx: TransactionInput, allowDuplicate = fals
       } else {
         balance -= tx.amount; // Ödeme kasadan para çıkarır
       }
-      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', tx.ledgerId).eq('balance', lData.balance).select('id').single());
+      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', tx.ledgerId).filter('balance', previousValueOperator(lData.balance), lData.balance).select('id').single());
       if (error || !data) partialFailure(error);
     }
   }
@@ -296,7 +306,7 @@ export async function deleteTransaction(txId: string) {
 
   // Bakiyeleri geri al
   if (tx.account_id) {
-    const { data: accData, error: accErr } = await afterMovement(supabase.from('accounts').select('borc, alacak, bakiye').eq('id', tx.account_id).single());
+    const { data: accData, error: accErr } = await afterMovement(supabase.from('accounts').select(accountBalanceSnapshot).eq('id', tx.account_id).single());
     if (accErr || !accData) partialFailure(accErr);
     if (accData && !accErr) {
       let borc = money(accData.borc), alacak = money(accData.alacak), bakiye = money(accData.bakiye);
@@ -309,19 +319,21 @@ export async function deleteTransaction(txId: string) {
         bakiye += tx.amount;
       }
       const { data, error } = await afterMovement(supabase.from('accounts').update({ borc: money(borc), alacak: money(alacak), bakiye: money(bakiye) }).eq('id', tx.account_id)
-        .eq('borc', accData.borc).eq('alacak', accData.alacak).eq('bakiye', accData.bakiye).select('id').single());
+        .filter('borc', previousValueOperator(accData.borc), accData.borc)
+        .filter('alacak', previousValueOperator(accData.alacak), accData.alacak)
+        .filter('bakiye', previousValueOperator(accData.bakiye), accData.bakiye).select('id').single());
       if (error || !data) partialFailure(error);
     }
   }
 
   if (tx.ledger_id) {
-    const { data: lData, error: lErr } = await afterMovement(supabase.from('ledgers').select('balance').eq('id', tx.ledger_id).single());
+    const { data: lData, error: lErr } = await afterMovement(supabase.from('ledgers').select('balance::text').eq('id', tx.ledger_id).single());
     if (lErr || !lData) partialFailure(lErr);
     if (lData && !lErr) {
       let balance = money(lData.balance);
       if (tx.type === 'tahsilat') balance -= tx.amount;
       else balance += tx.amount;
-      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', tx.ledger_id).eq('balance', lData.balance).select('id').single());
+      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', tx.ledger_id).filter('balance', previousValueOperator(lData.balance), lData.balance).select('id').single());
       if (error || !data) partialFailure(error);
     }
   }
@@ -370,7 +382,7 @@ export async function addTransactionToMultipleAccounts(accountIds: string[], txT
     console.error('Toplu işlemde bakiye güncellemesi tamamlanamadı:', cause);
     throw new WriteOutcomeError('Toplu işlem kayıtları oluşturuldu ancak tüm bakiyeler güncellenemedi. Aynı işlemi yeniden girmeyin; Hesap Kontrolü raporunu alın.', 'partial');
   };
-  const { data: accountsData, error: accountsReadError } = await afterMovement(supabase.from('accounts').select('id, borc, alacak, bakiye').in('id', accountIds));
+  const { data: accountsData, error: accountsReadError } = await afterMovement(supabase.from('accounts').select(`id, ${accountBalanceSnapshot}`).in('id', accountIds));
   if (accountsReadError || accountsData?.length !== accountIds.length) partialFailure(accountsReadError);
   
   if (accountsData) {
@@ -384,7 +396,9 @@ export async function addTransactionToMultipleAccounts(accountIds: string[], txT
         bakiye -= txTemplate.amount;
       }
       const { data, error } = await afterMovement(supabase.from('accounts').update({ borc: money(borc), alacak: money(alacak), bakiye: money(bakiye) }).eq('id', acc.id)
-        .eq('borc', acc.borc).eq('alacak', acc.alacak).eq('bakiye', acc.bakiye).select('id').single());
+        .filter('borc', previousValueOperator(acc.borc), acc.borc)
+        .filter('alacak', previousValueOperator(acc.alacak), acc.alacak)
+        .filter('bakiye', previousValueOperator(acc.bakiye), acc.bakiye).select('id').single());
       if (error || !data) partialFailure(error);
 
       if (alacak >= borc) {
@@ -397,7 +411,7 @@ export async function addTransactionToMultipleAccounts(accountIds: string[], txT
   // Update ledger balance once (Total amount = amount * accounts.length)
   if (txTemplate.ledgerId) {
     const totalAmount = txTemplate.amount * accountIds.length;
-    const { data: lData, error: ledgerReadError } = await afterMovement(supabase.from('ledgers').select('balance').eq('id', txTemplate.ledgerId).single());
+    const { data: lData, error: ledgerReadError } = await afterMovement(supabase.from('ledgers').select('balance::text').eq('id', txTemplate.ledgerId).single());
     if (ledgerReadError || !lData) partialFailure(ledgerReadError);
     if (lData) {
       let balance = money(lData.balance);
@@ -406,7 +420,7 @@ export async function addTransactionToMultipleAccounts(accountIds: string[], txT
       } else {
         balance -= totalAmount;
       }
-      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', txTemplate.ledgerId).eq('balance', lData.balance).select('id').single());
+      const { data, error } = await afterMovement(supabase.from('ledgers').update({ balance: money(balance) }).eq('id', txTemplate.ledgerId).filter('balance', previousValueOperator(lData.balance), lData.balance).select('id').single());
       if (error || !data) partialFailure(error);
     }
   }

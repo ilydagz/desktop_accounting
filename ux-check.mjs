@@ -18,7 +18,7 @@ dom.window.HTMLElement.prototype.setPointerCapture = function () {};
 dom.window.HTMLElement.prototype.releasePointerCapture = function () {};
 
 const api = globalThis.__limesUiCheck = {
-  saved: [], attempts: 0, refreshes: 0, failure: false, duplicate: false, saveWait: null, deletions: 0, deleteWait: null,
+  saved: [], attempts: 0, refreshes: 0, refreshWait: null, failure: false, duplicate: false, saveWait: null, deletions: 0, deleteWait: null,
   accounts: [{ id: 'a', name: 'Örnek A', custom_code: 'TEST-001', type: 'individual', borc: 10, alacak: 5, bakiye: 123 }],
   ledgers: [{ id: 'cash', name: 'Test kasası', type: 'kasa', balance: 100 }], transactions: [],
 };
@@ -62,7 +62,7 @@ const compiled = await build({
     builder.onResolve({ filter: /^@\/services\/db$/ }, args => ({ path: args.path, namespace: 'mock' }));
     builder.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ loader: 'js', resolveDir: process.cwd(), contents:
       args.path.endsWith('AuthContext') ? `export function useAuth(){return {user:{id:'ui-check'},institutionType:'koop',institutionId:'institution'};}` :
-      args.path.endsWith('DataContext') ? `export function useData(){const api=globalThis.__limesUiCheck;return {...api,refreshData:async()=>{api.refreshes++;}};}` : mockDb,
+      args.path.endsWith('DataContext') ? `export function useData(){const api=globalThis.__limesUiCheck;return {...api,refreshData:async()=>{api.refreshes++;await api.refreshWait;}};}` : mockDb,
     }));
   } }],
 });
@@ -113,17 +113,28 @@ assert.equal(alert(), null);
 assert.equal(api.attempts, 1);
 assert.equal(button('Kaydediliyor…', dialog()).disabled, true);
 assert.equal(api.saved.length, 0);
+assert.equal(window.dispatchEvent(new Event('beforeunload', { cancelable: true })), true);
 await click(button('Close', dialog()));
 assert.ok(dialog());
+let finishRefresh;
+api.refreshWait = new Promise(resolve => { finishRefresh = resolve; });
 await act(async () => { finishSave(); });
 api.saveWait = null;
 assert.equal(api.saved[0].amount, 200);
 assert.equal(api.saved[0].type, 'tahsilat');
 assert.equal(dialog(), null);
 assert.match(document.body.textContent, /İşlem kaydedildi/);
-console.log('PASS: saving starts directly, blocks repeated clicks and displays progress and success');
+const toastClose = document.querySelector('button[aria-label="Bildirimi kapat"]');
+await click(toastClose);
+assert.equal(document.body.textContent.includes('İşlem kaydedildi'), false);
+console.log('PASS: saving starts directly, blocks repeated clicks, and shows progress and a dismissible result');
 
 await openForm();
+assert.ok(api.refreshes > 0);
+assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, false);
+await act(async () => { finishRefresh(); });
+api.refreshWait = null;
+console.log('PASS: the next form is available while the previous list refresh is still running');
 Object.defineProperty(dom.window.navigator, 'onLine', { configurable: true, value: false });
 await act(async () => { dom.window.dispatchEvent(new dom.window.Event('offline')); });
 assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, true);
@@ -144,36 +155,49 @@ api.duplicate = false;
 console.log('PASS: duplicates leave the form open and show an error without resubmitting');
 
 api.failure = true;
+let expireNotice;
+const browserSetTimeout = dom.window.setTimeout.bind(dom.window);
+dom.window.setTimeout = (callback, delay, ...args) => {
+  if (delay !== 12_000) return browserSetTimeout(callback, delay, ...args);
+  expireNotice = callback;
+  return 0;
+};
 await click(button('Tahsilatı Kaydet', dialog()));
 assert.equal(api.attempts, 3);
-assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, true);
-assert.match(document.body.textContent, /Son işlemin sonucu kontrol edilmeli/);
-assert.ok(dom.window.localStorage.getItem('limes:write-review:ui-check'));
-console.log('PASS: an uncertain response blocks retry and persists only a review marker');
+assert.equal(button('Tahsilatı Kaydet', dialog()).disabled, false);
+const noticeBanner = () => [...document.querySelectorAll('[role="alert"]')]
+  .find(element => element.textContent.includes('Önceki işlemin sonucu sunucudan doğrulanamadı.'));
+assert.ok(noticeBanner());
+assert.deepEqual([...noticeBanner().parentElement.querySelectorAll('button')].map(el => el.getAttribute('aria-label')), ['İşlem bildirimini kapat']);
+const notice = dom.window.localStorage.getItem('limes:write-review:ui-check');
+assert.ok(notice);
+console.log('PASS: an uncertain response leaves an informational warning and enables the form again');
 
 await click(button('Close', dialog()));
 await act(async () => { root.unmount(); });
-await act(async () => { root = module.exports.mount(document.getElementById('root')); });
-assert.match(document.body.textContent, /Son işlemin sonucu kontrol edilmeli/);
-await click(button('Kayıtları kontrol ettim'));
-assert.equal(alert(), null);
-assert.equal(dom.window.localStorage.getItem('limes:write-review:ui-check'), null);
-assert.equal(api.attempts, 3);
-console.log('PASS: reopening retains the warning; acknowledging it never posts a movement');
-
-await act(async () => { root.unmount(); });
 await act(async () => { root = module.exports.mount(document.getElementById('root'), 'ledgers'); });
+assert.ok(noticeBanner());
 const deleteLedgerButton = document.querySelector('button[aria-label="Test kasası hesabını sil"]');
+assert.equal(deleteLedgerButton.disabled, false);
 let finishDelete;
 api.deleteWait = new Promise(resolve => { finishDelete = resolve; });
 await act(async () => { deleteLedgerButton.click(); deleteLedgerButton.click(); });
 assert.equal(api.deletions, 1);
 assert.equal(alert(), null);
 assert.equal(deleteLedgerButton.disabled, true);
+assert.equal(deleteLedgerButton.textContent, 'Siliniyor…');
 assert.match(document.querySelector('[role="status"]').textContent, /İşleminiz sürüyor/);
 await act(async () => { finishDelete(); });
 assert.match(document.body.textContent, /Başarıyla Silindi/);
-console.log('PASS: direct ledger deletion shows progress and only submits once');
+assert.equal(deleteLedgerButton.disabled, false);
+console.log('PASS: direct ledger deletion stays available with a previous warning, locks while busy, and only submits once');
+assert.equal(dom.window.localStorage.getItem('limes:write-review:ui-check'), notice);
+assert.equal(typeof expireNotice, 'function');
+await click(document.querySelector('button[aria-label="İşlem bildirimini kapat"]'));
+assert.equal(noticeBanner(), undefined);
+assert.equal(dom.window.localStorage.getItem('limes:write-review:ui-check'), null);
+assert.equal(api.attempts, 3);
+console.log('PASS: the warning survives unrelated writes and can be dismissed with X without an approval');
 await act(async () => { root.unmount(); });
 dom.window.close();
-console.log('All 7 isolated UI checks passed. No real database requests were available.');
+console.log('All 8 isolated UI checks passed. No real database requests were available.');

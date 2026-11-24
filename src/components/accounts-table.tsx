@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "@/hooks/use-toast"
 import { Account } from "@/pages/AccountsPage"
 import { addTransaction, getTransactionsByAccount, getAccount, deleteTransaction } from "@/services/db"
 import { historyWithSnapshots, inspectAccount } from "@/lib/account-balance"
@@ -27,10 +27,9 @@ const formatDate = (dateStr: string) => { const d = new Date(dateStr); return d.
 interface AccountsTableProps { data: Account[]; fullData: Account[]; onDelete: (id: string) => void; onEdit: (account: Account) => void; onRefresh: () => void; }
 
 export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: AccountsTableProps) {
-  const { toast } = useToast()
   const { institutionType, institutionName } = useAuth()
   const mutation = useMutationLock()
-  const { reportError, runWrite } = useActionSafety()
+  const { runWrite } = useActionSafety()
 
   const getAccountsSingleName = () => {
     switch(institutionType) {
@@ -66,6 +65,7 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [accountHistory, setAccountHistory] = useState<any[]>([])
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [summaryWarnings, setSummaryWarnings] = useState<string[]>([])
@@ -115,17 +115,17 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
 
   const handleDeleteHistory = async (tx: any) => {
     if (!mutation.begin()) return;
+    setDeletingHistoryId(tx.id);
     try {
       await runWrite(() => deleteTransaction(tx.id));
       toast({ title: 'Silindi', description: 'Hareket silindi ve bakiye güncellemesi tamamlandı.' });
       onRefresh();
       if (selectedAccount) await loadAccountHistory(selectedAccount);
     } catch (error) {
-      reportError(error);
       toast({ title: 'Silme tamamlanamadı', description: error instanceof Error ? error.message : 'Hesap Kontrolü raporunu inceleyin.', variant: 'destructive' });
       onRefresh();
       if (selectedAccount) void loadAccountHistory(selectedAccount);
-    } finally { mutation.end(); }
+    } finally { setDeletingHistoryId(null); mutation.end(); }
   }
 
   const handleTransactionSave = async () => {
@@ -163,10 +163,9 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
       onRefresh();
 
       if (selectedAccount && selectedAccount.id === transactionAccount.id) {
-        await loadAccountHistory(selectedAccount);
+        void loadAccountHistory(selectedAccount);
       }
     } catch (e) {
-      reportError(e);
       onRefresh();
       if (selectedAccount) void loadAccountHistory(selectedAccount);
       toast({ title: "İşlem tamamlanamadı", description: e instanceof Error ? e.message : 'Yeniden deneyin.', variant: "destructive" });
@@ -635,12 +634,13 @@ export function AccountsTable({ data, fullData, onDelete, onEdit, onRefresh }: A
                                 size="sm" 
                                 className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10"
                                 disabled={mutation.disabled}
+                                aria-busy={deletingHistoryId === tx.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   void handleDeleteHistory(tx);
                                 }}
                               >
-                                <Trash2 className="h-3 w-3 mr-1" /> Sil
+                                <Trash2 className="h-3 w-3 mr-1" /> {deletingHistoryId === tx.id ? 'Siliniyor…' : 'Sil'}
                               </Button>
                             </div>
                           </div>

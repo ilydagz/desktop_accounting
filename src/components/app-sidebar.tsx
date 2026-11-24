@@ -79,12 +79,13 @@ export function AppSidebar() {
   // ÇIKIŞ YAPMA FONKSİYONU
   const handleLogout = async (e: React.MouseEvent) => {
     e.stopPropagation() // Profil sayfasına gitmesini engelle (Tıklamayı durdur)
+    if (mutationCoordinator.snapshot().owner) return;
     await signOut()
     navigate("/") // Giriş sayfasına at
   }
 
   return (
-    <Sidebar collapsible="icon" onClickCapture={event => { if (writeBusy) { event.preventDefault(); event.stopPropagation(); } }}>
+    <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border p-4">
         <div className="flex items-center gap-2 px-1 group-data-[collapsible=icon]:justify-center">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
@@ -168,6 +169,7 @@ export function AppSidebar() {
                     {/* ÇIKIŞ BUTONU - ÖZELLEŞTİRİLDİ */}
                     <div 
                         role="button"
+                        aria-disabled={writeBusy}
                         onClick={handleLogout}
                         className="ml-auto flex h-7 w-7 items-center justify-center rounded-md hover:bg-background hover:text-destructive transition-colors group-data-[collapsible=icon]:hidden"
                         title="Çıkış Yap"

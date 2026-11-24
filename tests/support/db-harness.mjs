@@ -3,23 +3,34 @@ import vm from 'node:vm';
 import path from 'node:path';
 import ts from 'typescript';
 
-export async function databaseHarness({ accounts = [], transactions = [], ledgers = [], fail, serviceSource, env, online } = {}) {
+export async function databaseHarness({ accounts = [], transactions = [], ledgers = [], fail, serviceSource, env, online, numericJson = false } = {}) {
   const tables = structuredClone({ accounts, transactions, ledgers, profiles: [{ id: 'user', institution_id: 'institution' }] });
   const calls = [];
   let counter = 0;
   const supabase = {
     auth: { getUser: async () => ({ data: { user: { id: 'user' } }, error: null }) },
     from(table) {
-      let operation = 'select', values, single = false, from = 0, to = Infinity;
+      let operation = 'select', values, single = false, from = 0, to = Infinity, projection;
       const filters = [];
+      const numericColumns = table === 'accounts' ? ['borc', 'alacak', 'bakiye'] : table === 'ledgers' ? ['balance'] : [];
       const builder = {
-        select() { return builder; },
+        select(columns) { projection = columns; return builder; },
         insert(next) { operation = 'insert'; values = next; return builder; },
         update(next) { operation = 'update'; values = next; return builder; },
         delete() { operation = 'delete'; return builder; },
         eq(key, value) {
           const postgresTime = input => new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(input) ? input : input + 'Z').getTime();
-          filters.push(row => key === 'date' ? postgresTime(row[key]) === postgresTime(value) : row[key] === value);
+          filters.push(row => {
+            if (key === 'date') return postgresTime(row[key]) === postgresTime(value);
+            if (numericColumns.includes(key)) return row[key] != null && value != null && String(row[key]) === String(value);
+            return row[key] === value;
+          });
+          return builder;
+        },
+        filter(key, operator, value) {
+          if (operator === 'eq') return builder.eq(key, value);
+          if (operator !== 'is' || value !== null) throw new Error(`Unsupported filter: ${operator}`);
+          filters.push(row => row[key] === null);
           return builder;
         },
         in(key, values) { filters.push(row => values.includes(row[key])); return builder; },
@@ -42,7 +53,16 @@ export async function databaseHarness({ accounts = [], transactions = [], ledger
             }
             if (operation === 'update') for (const row of matching) Object.assign(row, structuredClone(values));
             if (operation === 'delete') tables[table] = tables[table].filter(row => !matching.includes(row));
-            const data = matching.slice(from, Math.min(to + 1, from + 1000));
+            const data = matching.slice(from, Math.min(to + 1, from + 1000)).map(row => {
+              if (operation !== 'select') return row;
+              const result = { ...row };
+              for (const column of numericColumns) {
+                if (row[column] == null) continue;
+                if (projection?.includes(`${column}::text`)) result[column] = String(row[column]);
+                else if (numericJson) result[column] = Number(row[column]);
+              }
+              return result;
+            });
             return { data: single ? data[0] ?? null : structuredClone(data), error: null, count: matching.length };
           }).then(resolve, reject);
         },
